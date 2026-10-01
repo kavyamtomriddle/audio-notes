@@ -208,7 +208,7 @@ Render: native Python runtime, build `pip install -r requirements.txt`, start `u
 ## 15. State, progress log, handoff (AGENT KEEPS THIS SECTION CURRENT)
 **Current phase:** Phase 0 not started
 **Phase checklist:** [ ] 0 Scaffold + hello-world deploy · [ ] 1 DB/storage/upload API · [ ] 2a Gnani client+LLM+fixtures+mocked tests · [ ] 2b Worker+retries+real e2e · [ ] 3 Frontend · [ ] 4 Hardening+/architecture scaffold+deploy config · [ ] 5 Human: prose, mock interview, submit
-**Open decisions (human decides):** delete audio after transcript stored? (default yes) · LLM model id · Render region
+**Open decisions (human decides):** delete audio after transcript stored? (default yes) · gemini-3.8-flash · Render region Singapore
 **Deviations from this file:** none
 **Known issues / next steps:** none
 **Progress log (newest first, one line each: date · what · files touched · tests run):**
@@ -228,3 +228,4 @@ Render: native Python runtime, build `pip install -r requirements.txt`, start `u
 9. `JOBS_GLOBAL_PER_DAY` is set by the human after measuring Gnani cost per audio minute.
 10. Graceful shutdown: on lifespan shutdown cancel the worker task and, best-effort, set `lease_expires_at = NULL` for the job in flight so it resumes immediately after restart (otherwise it waits out the 120 s lease).
 11. `/architecture` must include a privacy note on what the LLM provider does with submitted transcripts (human checks the provider's free-tier terms).
+12. A "completed step" for the attempts reset is any step that persists its outcome, including a handled 429 reschedule and a "still IN_PROGRESS" poll. Only unhandled exceptions and expired-lease reclaims leave attempts incremented.
