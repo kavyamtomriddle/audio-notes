@@ -209,15 +209,23 @@ Storage REST (call with `httpx`, `Authorization: Bearer <service key>` + `apikey
 Render: native Python runtime, build `pip install -r requirements.txt`, start `uvicorn app.main:app --host 0.0.0.0 --port $PORT`, health check `/health`, env vars set in dashboard. Vercel: root dir `frontend`, `NEXT_PUBLIC_API_URL` set in dashboard. Put Supabase and Render in the same/nearby region. Explicit CORS from `CORS_ORIGINS`.
 
 ## 15. State, progress log, handoff (AGENT KEEPS THIS SECTION CURRENT)
-**Current phase:** Phase 0 not started
-**Phase checklist:** [ ] 0 Scaffold + hello-world deploy · [ ] 1 DB/storage/upload API · [ ] 2a Gnani client+LLM+fixtures+mocked tests · [ ] 2b Worker+retries+real e2e · [ ] 3 Frontend · [ ] 4 Hardening+/architecture scaffold+deploy config · [ ] 5 Human: prose, mock interview, submit
+**Current phase:** Phase 0 DONE — ready for Phase 1
+**Phase checklist:** [x] 0 Scaffold + hello-world deploy · [ ] 1 DB/storage/upload API · [ ] 2a Gnani client+LLM+fixtures+mocked tests · [ ] 2b Worker+retries+real e2e · [ ] 3 Frontend · [ ] 4 Hardening+/architecture scaffold+deploy config · [ ] 5 Human: prose, mock interview, submit
 **Decisions made (human):** audio deleted after transcript stored: YES · LLM_MODEL: gemini-3.8-flash · Render region: Singapore
 **Deviations from this file:** none
-**Known issues / next steps:** none
+**Known issues / next steps:** Next.js pinned at 15.1.0 (has a deprecation warning about a CVE; update if desired before deploy). ESLint 9.39.5 deprecated warning (non-blocking).
 **Progress log (newest first, one line each: date · what · files touched · tests run):**
+- 2026-10-02 · Phase 0 complete: backend (FastAPI /health + CORS), frontend (Next.js health check page), .env.example, README.md, render.yaml, .gitignore · backend/app/{main,config,__init__}.py, backend/{requirements.txt,render.yaml}, frontend/src/app/{page,layout}.tsx, frontend/src/app/globals.css, frontend/{package.json,tsconfig.json,next.config.ts,postcss.config.mjs,eslint.config.mjs,.env.local,.gitignore}, .env.example, README.md · Backend /health → {"ok":true} ✓, CORS preflight → Access-Control-Allow-Origin: http://localhost:3000 ✓, Frontend serves at localhost:3000 ✓
 - 2026-10-02 · Context.md clarifications: added /api/config endpoint, resolved open decisions, clarified attempts/files_attempts/sweeper guards, added constants.py, Python 3.13, EST_RATIO via config, 140-char snippet definition, QUEUED status documented · Context.md · no tests
 **Session handoff note (≤10 lines, rewrite at the end of every session):**
-- (empty)
+- Phase 0 scaffold is done. Backend runs at :8000, frontend at :3000. No DB, no business logic yet.
+- Backend: FastAPI with /health returning {"ok":true} and CORS from CORS_ORIGINS env var. Python 3.13, venv in backend/.venv.
+- Frontend: Next.js 15.1.0 App Router + TS + Tailwind v4. Home page calls NEXT_PUBLIC_API_URL/health and shows "Backend: ok" or "waking up…".
+- .env.example at repo root has all §11 vars with empty secrets and sensible defaults. frontend/.env.local has NEXT_PUBLIC_API_URL=http://localhost:8000.
+- render.yaml pins PYTHON_VERSION=3.13, all secrets sync:false.
+- .gitignore covers .env, .env.*, node_modules, .venv, __pycache__, .next. Frontend has its own standard .gitignore too.
+- No git init/commit/push was done (per user request). Human deploys from dashboards.
+- Next: Phase 1 = DB schema (Alembic), storage service, upload API endpoints.
 
 ## 16. Human-approved addenda (override earlier text where they conflict)
 1. CORS: `CORSMiddleware` with origins from `CORS_ORIGINS`, methods GET/POST/OPTIONS, `allow_headers` including `X-Session-Id` and `Content-Type` (the custom header triggers a preflight on every API call).
