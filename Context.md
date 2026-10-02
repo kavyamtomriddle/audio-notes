@@ -203,20 +203,24 @@ Storage REST (call with `httpx`, `Authorization: Bearer <service key>` + `apikey
 ```
 /Context.md   /README.md   /.gitignore (.env, node_modules, __pycache__, .venv)   /.env.example
 /backend  (app/main.py, app/config.py, app/constants.py, app/db.py, app/models.py, app/schemas.py, app/routes/jobs.py,
-           app/services/{storage.py,gnani.py,llm.py}, app/worker.py, alembic/, tests/, requirements.txt, render.yaml)
+           app/services/{storage.py,gnani.py,llm.py}, app/worker.py (DB helpers only), app/sweeper.py, app/loop.py,
+           app/steps/{deps.py,queued.py,transcribing.py,completed.py,summarizing.py,dispatch.py},
+           alembic/, tests/, requirements.txt, render.yaml)
 /frontend (Next.js app, vercel.json only if needed)
 /docs/fixtures (scrubbed Gnani responses: create, start, job, files, transcript, 429, empty-transcript)
 ```
+Step functions live in `app/steps/`; `app/worker.py` keeps only the DB helpers.
 Render: native Python runtime, build `pip install -r requirements.txt`, start `uvicorn app.main:app --host 0.0.0.0 --port $PORT`, health check `/health`, env vars set in dashboard. Vercel: root dir `frontend`, `NEXT_PUBLIC_API_URL` set in dashboard. Put Supabase and Render in the same/nearby region. Explicit CORS from `CORS_ORIGINS`.
 
 ## 15. State, progress log, handoff (AGENT KEEPS THIS SECTION CURRENT)
 **Current phase:** Phase 2b-i in progress (claim + lease + step helpers + integration tests)
 **Deploy URLs:** Backend: https://audio-notes-n5b2.onrender.com · Frontend: https://audio-notes-red.vercel.app · render.yaml PYTHON_VERSION=3.13.3 (Render configured manually in dashboard; render.yaml is documentation only)
-**Phase checklist:** [x] 0 Scaffold + hello-world deploy · [x] 1 DB/storage/upload API · [x] 2a Gnani client+LLM+fixtures+mocked tests (human-verified: 47 tests pass, live check reached COMPLETED, 202/409/START_FAILED handled, object_exists/delete_object use Storage LIST API) · [ ] 2b Worker+retries+real e2e · [ ] 3 Frontend · [ ] 4 Hardening+/architecture scaffold+deploy config · [ ] 5 Human: prose, mock interview, submit
+**Phase checklist:** [x] 0 Scaffold + hello-world deploy · [x] 1 DB/storage/upload API · [x] 2a Gnani client+LLM+fixtures+mocked tests (human-verified: 47 tests pass, live check reached COMPLETED, 202/409/START_FAILED handled, object_exists/delete_object use Storage LIST API) · [x] 2b-i · [ ] 2b-ii-a · [ ] 2b-ii-b · [ ] 2b-ii-c · [ ] 2b-ii-d · [ ] 2b-iii-a · [ ] 2b-iii-b · [ ] 2b-iii-c · [ ] 2b-iii-d · [ ] 3 Frontend · [ ] 4 Hardening+/architecture scaffold+deploy config · [ ] 5 Human: prose, mock interview, submit
 **Decisions made (human):** audio deleted after transcript stored: YES · LLM_MODEL: gemini-3.8-flash · Render region: Singapore
 **Deviations from this file:** none
-**Known issues / next steps:** Next.js pinned at 15.1.0 (has a deprecation warning about a CVE; update if desired before deploy). ESLint 9.39.5 deprecated warning (non-blocking). User's .env has JOBS_GLOBAL_PER_DAY=2 (tests override this to 100 via conftest). Unit tests run on SQLite with fakes — they never exercise Postgres-only SQL or the real Storage/Gnani APIs. Integration tests (18) use a throwaway Postgres schema and exercise the real claim/lease/step SQL; excluded by default via pyproject.toml addopts = -m "not integration". Config uses plain module-level variables (not pydantic-settings); worker.py imports MAX_CLAIMS directly.
+**Known issues / next steps:** Next.js pinned at 15.1.0 (has a deprecation warning about a CVE; update if desired before deploy). ESLint 9.39.5 deprecated warning (non-blocking). User's .env has JOBS_GLOBAL_PER_DAY=2 (tests override this to 100 via conftest). Unit tests run on SQLite with fakes — they never exercise Postgres-only SQL or the real Storage/Gnani APIs. Integration tests (18) use a throwaway Postgres schema and exercise the real claim/lease/step SQL; excluded by default via pyproject.toml addopts = -m "not integration". Config uses plain module-level variables (not pydantic-settings); worker.py imports MAX_CLAIMS directly. 2b-i facts: pyproject sets asyncio_default_fixture_loop_scope = "module"; integration tests use NullPool and statement_cache_size=0; integration tests use DB-side now() (Python clocks drifted from the DB); the updated_at integration assertions only allow a 2 s tolerance, so they are weak (strengthen later, low priority).
 **Progress log (newest first, one line each: date · what · files touched · tests run):**
+- 2026-10-03 · Updated Context.md: added §17 guardrails, recorded 2b-i facts, replaced Phase 2b checklist, updated §14 repo layout for app/steps/. · Context.md · n/a
 - 2026-10-02 · Fixed 9 failing integration tests due to clock skew/transaction time issues by converting Python datetime generation (for `_insert_job` and test calls) to database-side `text("now()")` expressions and relaxing `updated_at` assertions. · backend/tests/integration/test_claim.py · 47 unit pass, 18 integration collected
 - 2026-10-02 · Fixed integration test setup: root cause was SET search_path auto-beginning a transaction then conn.begin() failing with InvalidRequestError; also NullPool, loop_scope="module", AUTOCOMMIT teardown, safe schema name validation, concurrent test rewritten with explicit conn management. · backend/tests/integration/test_claim.py, backend/pyproject.toml, Context.md · 47 unit pass (18 integration deselected)
 - 2026-10-02 · Phase 2b-i: worker.py DB helpers (claim_job, finish_step, fail_job, release_lease) with raw SQL. SMOKE_SESSION_PREFIX in constants.py. pyproject.toml for pytest config (integration marker, addopts). 18 integration tests in tests/integration/test_claim.py using throwaway PG schema. · backend/app/{worker,constants}.py, backend/pyproject.toml, backend/tests/integration/{__init__,test_claim}.py, Context.md · 47 unit pass, 18 integration collected (deselected by default)
@@ -230,13 +234,9 @@ Render: native Python runtime, build `pip install -r requirements.txt`, start `u
 - 2026-10-02 · Phase 0 complete: backend (FastAPI /health + CORS), frontend (Next.js health check page), .env.example, README.md, render.yaml, .gitignore · backend/app/{main,config,__init__}.py, backend/{requirements.txt,render.yaml}, frontend/src/app/{page,layout}.tsx, frontend/src/app/globals.css, frontend/{package.json,tsconfig.json,next.config.ts,postcss.config.mjs,eslint.config.mjs,.env.local,.gitignore}, .env.example, README.md · Backend /health → {"ok":true} ✓, CORS preflight → Access-Control-Allow-Origin: http://localhost:3000 ✓, Frontend serves at localhost:3000 ✓
 - 2026-10-02 · Context.md clarifications: added /api/config endpoint, resolved open decisions, clarified attempts/files_attempts/sweeper guards, added constants.py, Python 3.13, EST_RATIO via config, 140-char snippet definition, QUEUED status documented · Context.md · no tests
 **Session handoff note (≤10 lines, rewrite at the end of every session):**
-- Phase 2b-i DONE: app/worker.py has 4 DB helpers (claim_job, finish_step, fail_job, release_lease), all raw SQL via sqlalchemy.text.
-- Integration tests fixed. Root cause 1: `conn.execute(SET search_path)` auto-began a SA transaction. Fix: `conn.begin()` first.
-- Root cause 2: Python `datetime.now()` caused clock skew failures vs DB clock. Fix: migrated tests to use `text("now()")` for DB timestamps, relaxed `updated_at` checks for robust validation across Pgbouncer transaction boundaries.
-- NullPool + loop_scope="module" + AUTOCOMMIT teardown applied.
-- 47 unit tests pass, 18 integration tests deselected.
-- Integration test command: `.\.venv\Scripts\python.exe -m pytest -m integration tests/integration/test_claim.py -v --tb=long`
-- Next: human runs integration tests, then Phase 2b-ii (worker loop, steps, retry endpoints).
+- Phase 2b-i DONE: DB helpers live in app/worker.py. Context.md updated with 2b-i facts and §17 guardrails.
+- 47 unit tests pass, 18 integration deselected.
+- Ready for Phase 2b-ii (worker loop in app/loop.py, step functions in app/steps/).
 
 ## 16. Human-approved addenda (override earlier text where they conflict)
 1. CORS: `CORSMiddleware` with origins from `CORS_ORIGINS`, methods GET/POST/OPTIONS, `allow_headers` including `X-Session-Id` and `Content-Type` (the custom header triggers a preflight on every API call).
@@ -252,3 +252,14 @@ Render: native Python runtime, build `pip install -r requirements.txt`, start `u
 11. `/architecture` must include a privacy note on what the LLM provider does with submitted transcripts (human checks the provider's free-tier terms).
 12. A "completed step" for the attempts reset is any step that persists its outcome, including a handled 429 reschedule and a "still IN_PROGRESS" poll. Only unhandled exceptions and expired-lease reclaims leave attempts incremented.
 13. Python 3.13 everywhere: render.yaml PYTHON_VERSION, README, local venv.
+
+## 17. Agent guardrails (autonomous test loops)
+Allowed files: only those named in the prompt. Everything else is READ-ONLY, including app/worker.py existing functions, app/services/, app/models.py, app/db.py, app/config.py, app/constants.py, tests/conftest.py, pyproject.toml, tests/integration/, existing test files, docs/fixtures/, alembic/. If a change to a read-only file seems necessary, STOP and ask.
+Read before edit: open every file you will edit or call into in THIS thread. Never rely on memory, summaries or subagent reports (a subagent previously misdescribed config.py and conftest.py). If you use a subagent, verify each of its claims by opening the file yourself.
+Test loop: run .\.venv\Scripts\python.exe -m pytest -q from backend. You may fix failures yourself, at most 3 fix iterations per failure group. Each iteration: one-line hypothesis → smallest change in allowed files → rerun the failing tests, then the full suite. After 3 failed iterations, or if the fix needs a read-only file, STOP and report: failing tests, error text, hypothesis, what you tried. No 4th try.
+Never weaken tests: no deleting, skipping, xfail, loosened assertions, or expected values changed to match buggy behaviour. If a test and the spec disagree, stop and ask. Never mock the function under test.
+Unit tests use no real network, DB, time.sleep over 0.05 s, or .env. Baseline: 47 unit tests pass + 18 integration deselected; any regression in existing tests → stop.
+Output limits: create or edit ONE file per tool call; keep each chunk ≤ ~150 lines (split into functions or modules if larger); never print whole files in chat; final summary ≤ 10 lines.
+After each checkpoint update the §15 handoff note (≤ 5 lines) so a cutoff leaves a resumable state.
+No git commands, no .env, no live API calls, no integration tests, no new dependencies, no changes to pytest config.
+Scheduling fields (next_run_at, lease_expires_at) are set only by the worker.py helpers (DB-side now()). processing_started_at and completed_at may use Python UTC time.
