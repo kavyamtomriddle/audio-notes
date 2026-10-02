@@ -51,7 +51,7 @@ Docs (fetch only if you need more, don't crawl):
    ```
    → `{"job_id":"…","status":"CREATED","total_files_accepted":1,"created_at":"…","message":"…"}`. Creating does NOT start work. URL is validated at Start, not Create.
 2. `POST /stt/v3/batch/jobs/{job_id}/start` → `{"job_id","status":"STARTING","message":"Job start accepted…"}`. Docs list a **409** here → treat as "already started".
-3. `GET /stt/v3/batch/jobs/{job_id}` → `status` seen: `CREATED`, `STARTING`, `IN_PROGRESS`, `COMPLETED`. Documented terminal: `COMPLETED`, `PARTIAL_FAILURE`, `FAILED`, `START_FAILED`, `CANCELLED`. Also has `progress{total_files,completed_files,failed_files,…,percent}`, `cancel_reason`, `started_at`, `completed_at`. **`progress.percent` only jumps 0→100; DO NOT use it for UI progress.** Min poll interval 10 s.
+3. `GET /stt/v3/batch/jobs/{job_id}` → `status` seen: `CREATED`, `STARTING`, `IN_PROGRESS`, `COMPLETED`. Documented lifecycle: CREATED → STARTING → QUEUED → IN_PROGRESS → COMPLETED (QUEUED is documented but not yet observed in our tests; treat it as non-terminal). Documented terminal: `COMPLETED`, `PARTIAL_FAILURE`, `FAILED`, `START_FAILED`, `CANCELLED`. Also has `progress{total_files,completed_files,failed_files,…,percent}`, `cancel_reason`, `started_at`, `completed_at`. **`progress.percent` only jumps 0→100; DO NOT use it for UI progress.** Min poll interval 10 s.
 4. `GET /stt/v3/batch/jobs/{job_id}/files` → `{"data":[{"file_id","status","duration_seconds","error_message","transcript_url",…}]}`. **`duration_seconds` is a STRING here** (`"92.29"`). Filter `?status=COMPLETED` works. **This endpoint returns `429 RATE_LIMITED` aggressively** (even minutes later for one job).
 5. `GET <transcript_url>` (follow redirects, **no API key needed**, **expires in 1 hour → fetch immediately and store**). JSON has `full_transcript` (string) and `segments` (coarse; `speaker_id` is noise even with diarization off; `duration`-like fields here are numbers). **Use ONLY `full_transcript`.**
 
@@ -59,7 +59,7 @@ Docs (fetch only if you need more, don't crawl):
 **Private Supabase bucket + signed URL (`…/storage/v1/object/sign/<bucket>/<path>?token=…`) works** with `auth.mode = "public"`. Generate the signed URL in the worker at job-creation time with ~3 h expiry (Gnani fetches after Start; 30 min download limit). Never a 7-day URL.
 **Transcript quality:** lowercase, no punctuation, ASR mishears (e.g. "gift" for GIF). The summary prompt must say so.
 **Silent / music-only audio:** fails with an "Empty transcript after 3 retries"-style file error → map to `NO_SPEECH_DETECTED`. Also treat an empty/whitespace `full_transcript` the same way.
-**Language:** no auto-detect. UI has a language selector, default `en-IN`; take the supported code list from Create_Job.md.
+**Language:** no auto-detect. UI has a language selector, default `en-IN`; take the supported code list from Create_Job.md. Language codes live in ONE backend constant (`app/constants.py`), used by both validation and `/api/config`.
 **Unverified (treat defensively, log real values once seen):** whether `Retry-After` is sent on 429; exact file-level failure statuses/messages; behaviour for non-English audio; exact supported audio formats (read Create_Job.md and encode the allow-list in one constant).
 
 ### Error shapes (Gnani returns at least 4) — one function `normalize_gnani_error(resp) -> GnaniError(code, message, http_status, retryable)`
@@ -72,11 +72,11 @@ Rules: 429/500/502/503/504/timeouts → retryable. 401/403 → `PROVIDER_AUTH` n
 ## 4. End-to-end flow
 1. **Browser** generates/reads anonymous `session_id` (UUID in localStorage). Reads audio duration from file metadata (`HTMLAudioElement`, hint only, may be missing).
 2. `POST /api/jobs/initiate` → backend validates (size ≤ 50 MB, extension allow-list, caps §12), inserts row `awaiting_upload`, asks Supabase Storage for a **signed upload URL** for path `{session_id}/{job_id}/{safe_filename}`, returns it.
-3. Browser **PUTs the file directly to Supabase with `XMLHttpRequest`** (real byte progress; bypasses Vercel/Render payload limits).
+3. Browser **PUTs the file directly to Supabase with `XMLHttpRequest`** (real byte progress; bypasses Vercel/Render payload limits). This is the ONLY direct browser→Supabase call; everything else goes through our API.
 4. `POST /api/jobs/{id}/complete` → backend verifies the object exists in storage (size > 0), sets `status='queued'`.
 5. **Worker** (asyncio task in the FastAPI process) advances jobs one small step at a time (§8): create+start Gnani job → poll → fetch transcript → summarize.
 6. Browser polls **our** `GET /api/jobs/{id}` every 3 s (never Gnani) and renders stage, elapsed time, estimated progress bar, transcript, summary, errors, retry buttons.
-7. After the transcript is safely stored, the audio object is deleted from storage (saves the 1 GB free quota, privacy). Retry-summary never needs audio. *(Human may veto this — see §15 Open decisions.)*
+7. After the transcript is safely stored, the audio object is deleted from storage (saves the 1 GB free quota, privacy). Decided: yes.
 
 ## 5. Database schema (Alembic migration must match EXACTLY)
 Table `uploads` (use TEXT + CHECK constraints, not PG enums, so migrations stay trivial):
@@ -120,14 +120,15 @@ awaiting_upload ─/complete→ queued ─worker→ transcribing ─transcript s
 - `failed` always carries `error_code`, `error_message` (human-friendly), `retryable`.
 - Retry of a failed job: keep `gnani_job_id` if the Gnani job did not itself fail (so we poll/fetch it again at no cost); if Gnani's job failed, clear `gnani_job_id`/`gnani_started` and requeue.
 
-## 7. API (FastAPI, all under `/api`, JSON; every request except `/health` needs header `X-Session-Id`)
+## 7. API (FastAPI, all under `/api`, JSON; every request except `/health` and `/api/config` needs header `X-Session-Id`)
 | Method & path | Purpose |
 |---|---|
 | `GET /health` | `{ok:true}` (also used by the frontend to warm a sleeping Render instance) |
+| `GET /api/config` | Static settings, no session header, no secrets, no DB access. Returns `{"languages":[{"code":"en-IN","label":"English (India)"},…],"extensions":["mp3",…],"max_upload_bytes":52428800,"max_duration_hint_s":7200,"est_ratio":0.13}` (example abbreviated: the real lists are the FULL lists from Gnani Create_Job.md). Values come from the backend's constants and env vars. |
 | `POST /api/jobs/initiate` | body `{filename,size_bytes,content_type,duration_hint_s?,language_code}` → `{id, upload_url, expires_in}`; 413/415/429 with friendly `error_code` |
 | `POST /api/jobs/{id}/complete` | verify object exists → `queued`; 409 if state wrong |
 | `GET /api/jobs/{id}` | full job: ids, filename, status, gnani_status, summary_status, transcript, summary, error_*, summary_error, duration_hint_s, timestamps |
-| `GET /api/jobs` | this session's jobs, newest first, WITHOUT transcript/summary bodies (include a 140-char summary snippet) |
+| `GET /api/jobs` | this session's jobs, newest first, WITHOUT transcript/summary bodies (include a 140-char summary snippet: first 140 chars of summary, or null if no summary yet) |
 | `POST /api/jobs/{id}/retry` | only if `failed` and `retryable` |
 | `POST /api/jobs/{id}/retry-summary` | only if `transcript` present and `summary_status='failed'` |
 Job access is scoped by `session_id` match (404 otherwise). Job ids are random UUIDs. This is **not real auth**; say so honestly on `/architecture`.
@@ -150,6 +151,7 @@ LIMIT 1;
 -- same transaction: UPDATE … SET lease_expires_at = now() + interval '120 seconds', attempts = attempts + 1
 ```
 Lease is held only while a step runs (lease 120 s covers the longest step, the LLM call). A crashed process leaves an expired lease, so another claim picks the job up. `attempts` counts consecutive claims WITHOUT a completed step: reset to 0 after any step that finishes without error, and on manual retry. If it exceeds `MAX_CLAIMS` (default 5) → fail `WORKER_STUCK`, retryable. (A long file legitimately needs dozens of claims; only crash loops should trip this.)
+Three separate guards, not a conflict: `attempts` (crash loops only, MAX_CLAIMS), `files_attempts` (/files failures, cap 8 → PROVIDER_RATE_LIMITED), and TRANSCRIBE_TIMEOUT_S + the sweeper (a Gnani job stuck IN_PROGRESS). A handled 429 resets `attempts` but increments `files_attempts`.
 
 **Steps by status:**
 - `queued`: if no `gnani_job_id`: build signed download URL (3 h) → `POST create` → **commit `gnani_job_id` immediately**. If not `gnani_started`: `POST start` (409 ⇒ already started) → commit `gnani_started=true`, `status='transcribing'`, `processing_started_at=now()`, `next_run_at=now()+10s`.
@@ -175,21 +177,22 @@ Input = stored `transcript`. System/prompt must say: *"The input is raw ASR outp
 Long transcripts: if `len(transcript) > SUMMARY_CHUNK_CHARS*2` (default chunk 30 000 chars) → summarize chunks (map) then merge (reduce). Per-call timeout; 2 retries with backoff on 429/5xx. LLM key is backend-only.
 
 ## 11. Environment variables (ONE `.env` at the repo root; `.env.example` committed with empty values)
-`DATABASE_URL` (Supabase **session pooler** URI, converted to `postgresql+asyncpg://`; the direct DB host is IPv6-only and may not be reachable from Render — if a transaction pooler (port 6543) is ever used, set asyncpg `statement_cache_size=0`) · `SUPABASE_URL` · `SUPABASE_SERVICE_KEY` (service-role/secret key, backend ONLY) · `SUPABASE_BUCKET` · `GNANI_API_KEY` · `GNANI_BASE_URL=https://api.vachana.ai` · `LLM_API_KEY` · `LLM_MODEL` · `CORS_ORIGINS` (comma list: Vercel URL + `http://localhost:3000`) · `MAX_UPLOAD_BYTES=52428800` · `MAX_DURATION_HINT_S=7200` · `JOBS_PER_SESSION_PER_DAY=10` · `JOBS_GLOBAL_PER_DAY=100` · `EST_RATIO=0.13` · `TRANSCRIBE_TIMEOUT_S=3600` · `ENABLE_WORKER=true`.
+`DATABASE_URL` (Supabase **session pooler** URI, converted to `postgresql+asyncpg://`; the direct DB host is IPv6-only and may not be reachable from Render — if a transaction pooler (port 6543) is ever used, set asyncpg `statement_cache_size=0`) · `SUPABASE_URL` · `SUPABASE_SERVICE_KEY` (service-role/secret key, backend ONLY) · `SUPABASE_BUCKET` · `GNANI_API_KEY` · `GNANI_BASE_URL=https://api.vachana.ai` · `LLM_API_KEY` · `LLM_MODEL` · `CORS_ORIGINS` (comma list: Vercel URL + `http://localhost:3000`) · `MAX_UPLOAD_BYTES=52428800` · `MAX_DURATION_HINT_S=7200` · `JOBS_PER_SESSION_PER_DAY=10` · `JOBS_GLOBAL_PER_DAY=100` · `EST_RATIO=0.13` (served to the frontend via `/api/config`) · `TRANSCRIBE_TIMEOUT_S=3600` · `MAX_CLAIMS=5` · `SUMMARY_CHUNK_CHARS=30000` · `ENABLE_WORKER=true`.
 Frontend: `NEXT_PUBLIC_API_URL` only. No secrets in the frontend, ever.
 Storage REST (call with `httpx`, `Authorization: Bearer <service key>` + `apikey` header; verify exact paths/response fields against Supabase Storage docs and a smoke test): create signed upload URL (`POST /storage/v1/object/upload/sign/{bucket}/{path}`), create signed download URL (`POST /storage/v1/object/sign/{bucket}/{path}` body `{"expiresIn":10800}`; the returned `signedURL` is relative — prefix `{SUPABASE_URL}/storage/v1`), check object exists, delete object.
 
 ## 12. Limits, abuse, validation (no real auth, public URL, shared ₹1,000 credits)
-- Size ≤ 50 MB enforced in browser, in `/initiate` (declared size), by the bucket's file-size limit, and re-checked at `/complete`. Extension allow-list (from Gnani docs). Reject early with friendly messages; for oversize suggest compressing (e.g. mp3 ≈ 1 MB/min at 128 kbps; WAV is far bigger).
+- Size ≤ 50 MB enforced in browser, in `/initiate` (declared size), by the bucket's file-size limit, and re-checked at `/complete`. Extension allow-list (from Gnani docs). Reject early with friendly messages; for oversize suggest compressing (e.g. mp3 ≈ 1 MB/min at 128 kbps; WAV is far bigger). Language codes and extensions live in ONE backend constant (`app/constants.py`), used by both validation and `/api/config`.
 - Per-session and global daily job caps from env (count rows in DB; simple, explainable).
 - Duration hint > `MAX_DURATION_HINT_S` → reject (hint is untrusted; real cap is bytes).
 - "Corrupt file" has no local detection (no ffprobe): rely on Gnani's file-level failure → `CORRUPT_OR_UNREADABLE_AUDIO`.
 
 ## 13. Frontend spec (Next.js App Router, Tailwind)
+- On load, fetch `/api/config` and use it for the language select, client-side size/format validation, and the progress estimate (`min(0.95, elapsed / (est_ratio * duration_hint_s))`). If it fails, show the "server is waking up" banner and retry with backoff; do not fall back to hardcoded values.
 - `/` : language select (default en-IN), file dropzone, validation messages, upload progress bar (XHR `upload.onprogress`), then history list (from `GET /api/jobs`, status badges, click to open).
 - `/jobs/[id]` : stage text + elapsed timer + estimated progress bar; transcript (labelled raw ASR output, copy/download .txt); summary (Markdown); error panel with friendly text + Retry button iff `retryable`; "Retry summary" when `summary_status='failed'`.
 - Stage text mapping: `awaiting_upload` Uploading · `queued` Queued · `transcribing` + gnani_status (`STARTING/QUEUED` "Starting transcription", `IN_PROGRESS` "Transcribing", `COMPLETED` "Fetching transcript", while retrying files fetch "Waiting on speech provider") · `summarizing` Summarizing · `completed` Done.
-- Progress bar while transcribing: `min(0.95, elapsed / (EST_RATIO * duration_hint_s))` (if no hint, indeterminate bar). If elapsed > 2× estimate show "Taking longer than expected — still working". Elapsed is computed from server timestamp `processing_started_at`.
+- Progress bar while transcribing: `min(0.95, elapsed / (est_ratio * duration_hint_s))` where `est_ratio` comes from `/api/config` (if no hint, indeterminate bar). If elapsed > 2× estimate show "Taking longer than expected — still working". Elapsed is computed from server timestamp `processing_started_at`.
 - Polling hook: every 3 s to OUR API; stop on terminal state (`failed`, or `completed` with summary not pending); on network error show a "reconnecting…" banner and keep trying with backoff.
 - On first load call `/health`; if slow (>3 s) show "Server is waking up (free tier, up to ~1 min)".
 - `/architecture` : scaffold only (headings + placeholder `TODO(human)` paragraphs + a "Facts to cover" list taken from this file + repo link). The human writes the prose. Include sections: flow upload→transcript, where files live, long audio handling (Gnani Batch via signed URL, 50 MB bound), sync vs background, failure handling, limits/abuse, known limitations (§8), alternatives considered (REST 30 s limit + chunking with ffmpeg; webhooks; Redis/Celery), what we'd do with more time.
@@ -198,7 +201,7 @@ Storage REST (call with `httpx`, `Authorization: Bearer <service key>` + `apikey
 ## 14. Repo layout & deployment
 ```
 /Context.md   /README.md   /.gitignore (.env, node_modules, __pycache__, .venv)   /.env.example
-/backend  (app/main.py, app/config.py, app/db.py, app/models.py, app/schemas.py, app/routes/jobs.py,
+/backend  (app/main.py, app/config.py, app/constants.py, app/db.py, app/models.py, app/schemas.py, app/routes/jobs.py,
            app/services/{storage.py,gnani.py,llm.py}, app/worker.py, alembic/, tests/, requirements.txt, render.yaml)
 /frontend (Next.js app, vercel.json only if needed)
 /docs/fixtures (scrubbed Gnani responses: create, start, job, files, transcript, 429, empty-transcript)
@@ -208,11 +211,11 @@ Render: native Python runtime, build `pip install -r requirements.txt`, start `u
 ## 15. State, progress log, handoff (AGENT KEEPS THIS SECTION CURRENT)
 **Current phase:** Phase 0 not started
 **Phase checklist:** [ ] 0 Scaffold + hello-world deploy · [ ] 1 DB/storage/upload API · [ ] 2a Gnani client+LLM+fixtures+mocked tests · [ ] 2b Worker+retries+real e2e · [ ] 3 Frontend · [ ] 4 Hardening+/architecture scaffold+deploy config · [ ] 5 Human: prose, mock interview, submit
-**Open decisions (human decides):** delete audio after transcript stored? (default yes) · gemini-3.8-flash · Render region Singapore
+**Decisions made (human):** audio deleted after transcript stored: YES · LLM_MODEL: gemini-3.8-flash · Render region: Singapore
 **Deviations from this file:** none
 **Known issues / next steps:** none
 **Progress log (newest first, one line each: date · what · files touched · tests run):**
-- (empty)
+- 2026-10-02 · Context.md clarifications: added /api/config endpoint, resolved open decisions, clarified attempts/files_attempts/sweeper guards, added constants.py, Python 3.13, EST_RATIO via config, 140-char snippet definition, QUEUED status documented · Context.md · no tests
 **Session handoff note (≤10 lines, rewrite at the end of every session):**
 - (empty)
 
@@ -229,3 +232,4 @@ Render: native Python runtime, build `pip install -r requirements.txt`, start `u
 10. Graceful shutdown: on lifespan shutdown cancel the worker task and, best-effort, set `lease_expires_at = NULL` for the job in flight so it resumes immediately after restart (otherwise it waits out the 120 s lease).
 11. `/architecture` must include a privacy note on what the LLM provider does with submitted transcripts (human checks the provider's free-tier terms).
 12. A "completed step" for the attempts reset is any step that persists its outcome, including a handled 429 reschedule and a "still IN_PROGRESS" poll. Only unhandled exceptions and expired-lease reclaims leave attempts incremented.
+13. Python 3.13 everywhere: render.yaml PYTHON_VERSION, README, local venv.
