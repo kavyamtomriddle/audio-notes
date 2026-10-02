@@ -59,7 +59,7 @@ async def create_signed_upload_url(
         data = resp.json()
         # Response: {"url": "/storage/v1/object/upload/sign/bucket/path?token=..."}
         relative_url = data["url"]
-        full_url = f"{_base_url()}{relative_url}"
+        full_url = f"{_base_url()}/storage/v1{relative_url}"
         return full_url, _UPLOAD_EXPIRES_IN
     finally:
         if client is None:
@@ -89,7 +89,7 @@ async def create_signed_download_url(
         data = resp.json()
         # Response: {"signedURL": "/storage/v1/object/sign/bucket/path?token=..."}
         relative_url = data["signedURL"]
-        return f"{_base_url()}{relative_url}"
+        return f"{_base_url()}/storage/v1{relative_url}"
     finally:
         if client is None:
             await _client.aclose()
