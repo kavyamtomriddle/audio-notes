@@ -1,0 +1,4 @@
+{
+  "error": "JOB_ALREADY_STARTED",
+  "message": "Job cannot be restarted from state 'FAILED'"
+}

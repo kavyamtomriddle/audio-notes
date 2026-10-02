@@ -45,6 +45,9 @@ async def main():
     # Unique storage path that won't collide with real uploads
     object_path = f"live-check-{uuid.uuid4().hex[:8]}/{filename}"
 
+    job_id = "UNKNOWN"
+    terminal_reached = False
+
     async with httpx.AsyncClient(timeout=60) as client:
         try:
             # --- Step 1: Upload to Supabase storage ---
@@ -112,6 +115,9 @@ async def main():
                 print("Max polls exceeded — giving up")
                 return
 
+            if status in terminal_statuses:
+                terminal_reached = True
+
             if status != "COMPLETED":
                 print(f"Job ended with status: {status}")
                 # Try to get error details
@@ -154,25 +160,46 @@ async def main():
                 print(f"Total length: {len(transcript)} chars")
             except gnani.EmptyTranscriptError:
                 print("Empty transcript — NO_SPEECH_DETECTED")
+            
+            terminal_reached = True
 
+        except Exception as e:
+            print(f"\nUnexpected error: {e}")
+            raise
         finally:
             # --- Cleanup: delete object and confirm ---
             print("\n--- Cleanup ---")
-            try:
-                deleted = await storage.delete_object(
-                    object_path, client=client,
-                )
-                print(f"Delete returned: {deleted}")
-
-                still_exists = await storage.object_exists(
-                    object_path, client=client,
-                )
-                if still_exists:
-                    print("WARNING: Object still exists after delete!")
-                else:
-                    print("Confirmed: object is gone")
-            except Exception as e:
-                print(f"Cleanup error: {e}")
+            if not terminal_reached:
+                print(f"Job ID: {job_id}")
+                print(f"Object Path: {object_path}")
+                print("Not deleting audio object as Gnani job may still be fetching it.")
+            else:
+                try:
+                    deleted = await storage.delete_object(
+                        object_path, client=client,
+                    )
+                    print(f"Delete returned: {deleted}")
+    
+                    # DIAGNOSTIC: Make the same GET request the old object_exists made
+                    # to see why it returned True (false positive).
+                    diag_url = f"{storage._base_url()}/storage/v1/object/authenticated/{storage.SUPABASE_BUCKET}/{object_path}"
+                    diag_resp = await client.get(
+                        diag_url,
+                        headers=storage._headers(),
+                        follow_redirects=True,
+                    )
+                    print(f"Diagnostic exists status: {diag_resp.status_code}")
+                    print(f"Diagnostic exists body: {diag_resp.text[:200]}")
+    
+                    still_exists = await storage.object_exists(
+                        object_path, client=client,
+                    )
+                    if still_exists:
+                        print("WARNING: Object still exists after delete!")
+                    else:
+                        print("Confirmed: object is gone")
+                except Exception as e:
+                    print(f"Cleanup error: {e}")
 
     print("\nDone!")
 

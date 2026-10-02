@@ -1,0 +1,24 @@
+{
+  "job_id": "00000000-0000-0000-0000-000000000001",
+  "status": "START_FAILED",
+  "config": {
+    "model": "gnani-prisma-v2.5",
+    "language_code": "en-IN",
+    "mode": "transcribe"
+  },
+  "progress": {
+    "total_files": 0,
+    "completed_files": 0,
+    "failed_files": 0,
+    "in_progress_files": 0,
+    "queued_files": 0,
+    "cancelled_files": 0,
+    "percent": 100
+  },
+  "cancel_reason": "All provided paths were invalid — nothing to process.",
+  "created_at": "2026-01-01T00:00:00.000000Z",
+  "started_at": null,
+  "completed_at": null,
+  "cancelled_at": null,
+  "updated_at": "2026-01-01T00:00:02.000000Z"
+}

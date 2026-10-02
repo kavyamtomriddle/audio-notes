@@ -96,6 +96,41 @@ async def test_signed_download_url_starts_with_storage_v1():
         )
     assert url.startswith("https://test-project.supabase.co/storage/v1/")
 
+# --- object_exists tests ---
+
+@pytest.mark.asyncio
+async def test_object_exists_present():
+    """object_exists returns True if object is in LIST array."""
+    from app.services.storage import object_exists
+    transport = FakeTransport(200, json_body=[
+        {"name": "file.mp3", "id": "abc"},
+    ])
+    async with httpx.AsyncClient(transport=transport) as client:
+        result = await object_exists("folder/file.mp3", client=client)
+    assert result is True
+
+
+@pytest.mark.asyncio
+async def test_object_exists_absent():
+    """object_exists returns False if object is missing from LIST array."""
+    from app.services.storage import object_exists
+    transport = FakeTransport(200, json_body=[
+        {"name": "other.mp3", "id": "def"},
+    ])
+    async with httpx.AsyncClient(transport=transport) as client:
+        result = await object_exists("folder/file.mp3", client=client)
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_object_exists_404():
+    """object_exists returns False on 404/400 from LIST API."""
+    from app.services.storage import object_exists
+    transport = FakeTransport(404, json_body={"error": "Bucket not found"})
+    async with httpx.AsyncClient(transport=transport) as client:
+        result = await object_exists("folder/file.mp3", client=client)
+    assert result is False
+
 
 # --- delete_object tests ---
 
@@ -243,6 +278,52 @@ def test_normalize_unknown_shape_fallback():
     assert err.code == "PROVIDER_ERROR"
     assert err.http_status == 502
     assert err.retryable is True
+
+
+@pytest.mark.asyncio
+async def test_start_job_202_success():
+    """start_job should treat 202 as success."""
+    from app.services.gnani import start_job
+    transport = FakeTransport(202, json_body={
+        "job_id": "123", "status": "STARTING",
+    })
+    async with httpx.AsyncClient(transport=transport) as client:
+        result = await start_job("123", client=client)
+    assert result["status"] == "STARTING"
+
+
+@pytest.mark.asyncio
+async def test_start_job_409_conflict():
+    """start_job should treat 409 as a conflict requiring get_job."""
+    from app.services.gnani import start_job
+    transport = FakeTransport(409, json_body={
+        "error": "JOB_ALREADY_STARTED",
+        "message": "Job cannot be restarted from state 'FAILED'"
+    })
+    async with httpx.AsyncClient(transport=transport) as client:
+        result = await start_job("123", client=client)
+    assert result["status"] == "CONFLICT"
+    assert "Call get_job" in result["message"]
+
+
+@pytest.mark.asyncio
+async def test_get_job_start_failed():
+    """get_job handles START_FAILED (e.g. invalid URL) correctly."""
+    from app.services.gnani import get_job
+    transport = FakeTransport(200, json_body={
+        "job_id": "123",
+        "status": "START_FAILED",
+        "cancel_reason": "All provided paths were invalid — nothing to process.",
+        "started_at": None,
+        "progress": {"percent": 100}
+    })
+    async with httpx.AsyncClient(transport=transport) as client:
+        result = await get_job("123", client=client)
+    
+    assert result["status"] == "START_FAILED"
+    assert "invalid" in result["cancel_reason"]
+    assert result["started_at"] is None
+    assert result["progress"]["percent"] == 100
 
 
 # ---------------------------------------------------------------------------

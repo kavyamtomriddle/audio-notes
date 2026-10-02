@@ -100,29 +100,37 @@ async def object_exists(
     *,
     client: httpx.AsyncClient | None = None,
 ) -> bool:
-    """Check whether an object exists in the bucket (HEAD request).
+    """Check whether an object exists in the bucket (LIST API).
 
-    Returns True if the object exists (200), False on 404. Raises on other errors.
+    Returns True if the exact object name is in the result list.
+    POST /storage/v1/object/list/{bucket}
+    Body: {"prefix": "folder_path", "limit": 1, "search": "filename"}
     """
-    url = (
-        f"{_base_url()}/storage/v1/object/authenticated"
-        f"/{SUPABASE_BUCKET}/{path}"
-    )
+    if "/" in path:
+        folder, filename = path.rsplit("/", 1)
+    else:
+        folder, filename = "", path
+
+    url = f"{_base_url()}/storage/v1/object/list/{SUPABASE_BUCKET}"
     _client = client or httpx.AsyncClient()
     try:
-        resp = await _client.get(
+        resp = await _client.post(
             url,
-            headers=_headers(),
+            headers={**_headers(), "Content-Type": "application/json"},
+            json={"prefix": folder, "limit": 100, "search": filename},
             timeout=15,
-            # We only need to check existence; follow_redirects in case
-            follow_redirects=True,
         )
-        if resp.status_code == 200:
-            return True
-        if resp.status_code == 404 or resp.status_code == 400:
-            return False
-        resp.raise_for_status()
-        return False  # unreachable, but satisfies the type checker
+        if not (200 <= resp.status_code < 300):
+            if resp.status_code in (400, 404):
+                return False
+            resp.raise_for_status()
+        
+        items = resp.json()
+        if isinstance(items, list):
+            for item in items:
+                if isinstance(item, dict) and item.get("name") == filename:
+                    return True
+        return False
     finally:
         if client is None:
             await _client.aclose()
@@ -159,9 +167,11 @@ async def delete_object(
         # An empty list means the path did not match any existing object
         # (Supabase still returns 200 in that case).
         deleted_items = resp.json()
-        if isinstance(deleted_items, list) and len(deleted_items) > 0:
-            logger.info("Storage object deleted (path redacted)")
-            return True
+        if isinstance(deleted_items, list):
+            for item in deleted_items:
+                if isinstance(item, dict) and item.get("name") == path:
+                    logger.info("Storage object deleted (path redacted)")
+                    return True
 
         logger.warning(
             "Storage delete returned 200 but nothing was removed (path redacted)"

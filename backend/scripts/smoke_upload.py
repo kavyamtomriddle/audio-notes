@@ -53,30 +53,40 @@ def _make_tiny_wav() -> bytes:
     return header + b"\x80" * data_size  # 0x80 = silence in unsigned 8-bit PCM
 
 
-async def _cleanup(job_id: str, storage_path: str) -> None:
+async def _cleanup(job_id: str | None, storage_path: str) -> None:
     """Delete the storage object and DB row created during the smoke test."""
     # Delete storage object
-    try:
-        from app.services.storage import delete_object
-        if storage_path:
+    if storage_path:
+        try:
+            from app.services.storage import delete_object, object_exists
             deleted = await delete_object(storage_path)
-            print(f"Storage object deleted: {deleted}")
-    except Exception as e:
-        print(f"Storage cleanup failed: {e}")
+            print(f"Storage delete returned: {deleted}")
+            
+            still_exists = await object_exists(storage_path)
+            print(f"Storage object gone: {not still_exists}")
+            
+            if not deleted or still_exists:
+                print(f"Storage object deletion failed or unverified. Path: {storage_path}")
+                sys.exit(1)
+        except Exception as e:
+            print(f"Storage cleanup failed with exception: {e}")
+            print(f"Storage object deletion failed or unverified. Path: {storage_path}")
+            sys.exit(1)
 
     # Delete DB row
-    try:
-        from app.db import get_engine
-        from sqlalchemy import text as sql_text
-        engine = get_engine()
-        async with engine.begin() as conn:
-            await conn.execute(
-                sql_text("DELETE FROM uploads WHERE id = :id"),
-                {"id": job_id},
-            )
-        print(f"DB row deleted: {job_id}")
-    except Exception as e:
-        print(f"DB cleanup failed (may need manual cleanup): {e}")
+    if job_id:
+        try:
+            from app.db import get_engine
+            from sqlalchemy import text as sql_text
+            engine = get_engine()
+            async with engine.begin() as conn:
+                await conn.execute(
+                    sql_text("DELETE FROM uploads WHERE id = :id"),
+                    {"id": job_id},
+                )
+            print(f"DB row deleted: {job_id}")
+        except Exception as e:
+            print(f"DB cleanup failed (may need manual cleanup): {e}")
 
 
 async def main():
@@ -118,6 +128,8 @@ async def main():
             initiate_data = resp.json()
             job_id = initiate_data["id"]
             upload_url = initiate_data["upload_url"]
+            from urllib.parse import urlparse
+            storage_path = "/".join(urlparse(upload_url).path.split("/")[-3:])
             print(f"Job ID: {job_id}")
             print(f"Upload URL length: {len(upload_url)} chars (not printing — contains token)")
 
@@ -155,7 +167,6 @@ async def main():
             )
             print(f"Status: {resp.status_code}")
             job_data = resp.json()
-            storage_path = job_data.get("storage_path", "")
             for key in ("id", "filename", "size_bytes", "status", "storage_path", "created_at"):
                 if key in job_data:
                     # Redact storage_path to avoid printing signed URLs
@@ -167,7 +178,7 @@ async def main():
         print("\nDone!")
     finally:
         # Always clean up unless --keep, even if the test failed partway through
-        if job_id and not args.keep:
+        if not args.keep and (job_id or storage_path):
             print("\n--- Cleanup (finally) ---")
             await _cleanup(job_id, storage_path)
         elif args.keep:

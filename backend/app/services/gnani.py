@@ -227,7 +227,7 @@ async def create_job(
         },
     }
     resp = await _paced_request(client, "POST", url, json=payload)
-    if resp.status_code not in (200, 201):
+    if not (200 <= resp.status_code < 300):
         err = normalize_gnani_error(resp)
         raise GnaniAPIError(err)
     return resp.json()
@@ -246,10 +246,11 @@ async def start_job(
     url = f"{_base()}/stt/v3/batch/jobs/{job_id}/start"
     resp = await _paced_request(client, "POST", url)
     if resp.status_code == 409:
-        # Already started — not an error
-        logger.info("Gnani job %s already started (409)", job_id)
-        return {"job_id": job_id, "status": "STARTING", "already_started": True}
-    if resp.status_code not in (200, 201):
+        # Could mean already running OR already failed (terminal).
+        # Return a distinct status so the caller knows to call get_job to decide.
+        logger.info("Gnani job %s returned 409 (conflict), must call get_job", job_id)
+        return {"status": "CONFLICT", "message": "Job already started or failed. Call get_job."}
+    if not (200 <= resp.status_code < 300):
         err = normalize_gnani_error(resp)
         raise GnaniAPIError(err)
     return resp.json()
@@ -266,7 +267,7 @@ async def get_job(
     """
     url = f"{_base()}/stt/v3/batch/jobs/{job_id}"
     resp = await _paced_request(client, "GET", url)
-    if resp.status_code != 200:
+    if not (200 <= resp.status_code < 300):
         err = normalize_gnani_error(resp)
         raise GnaniAPIError(err)
     return resp.json()
@@ -284,7 +285,7 @@ async def get_files(
     """
     url = f"{_base()}/stt/v3/batch/jobs/{job_id}/files"
     resp = await _paced_request(client, "GET", url)
-    if resp.status_code != 200:
+    if not (200 <= resp.status_code < 300):
         err = normalize_gnani_error(resp)
         raise GnaniAPIError(err)
     return resp.json()
