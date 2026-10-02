@@ -49,3 +49,7 @@ UPLOAD_STATUSES = (
 )
 
 SUMMARY_STATUSES = ("pending", "done", "failed")
+
+# ---------- Worker ----------
+# smoke_upload.py deletes its own audio and the worker must not race it.
+SMOKE_SESSION_PREFIX = "smoke-"
