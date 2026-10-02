@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import CORS_ORIGINS
+from app.routes.jobs import router as jobs_router
 
 app = FastAPI(title="Audio Notes API")
 
@@ -13,6 +14,8 @@ app.add_middleware(
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["X-Session-Id", "Content-Type"],
 )
+
+app.include_router(jobs_router)
 
 
 @app.get("/health")

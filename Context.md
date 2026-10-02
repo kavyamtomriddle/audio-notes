@@ -209,23 +209,28 @@ Storage REST (call with `httpx`, `Authorization: Bearer <service key>` + `apikey
 Render: native Python runtime, build `pip install -r requirements.txt`, start `uvicorn app.main:app --host 0.0.0.0 --port $PORT`, health check `/health`, env vars set in dashboard. Vercel: root dir `frontend`, `NEXT_PUBLIC_API_URL` set in dashboard. Put Supabase and Render in the same/nearby region. Explicit CORS from `CORS_ORIGINS`.
 
 ## 15. State, progress log, handoff (AGENT KEEPS THIS SECTION CURRENT)
-**Current phase:** Phase 0 DONE — ready for Phase 1
-**Phase checklist:** [x] 0 Scaffold + hello-world deploy · [ ] 1 DB/storage/upload API · [ ] 2a Gnani client+LLM+fixtures+mocked tests · [ ] 2b Worker+retries+real e2e · [ ] 3 Frontend · [ ] 4 Hardening+/architecture scaffold+deploy config · [ ] 5 Human: prose, mock interview, submit
+**Current phase:** Phase 1 DONE — ready for Phase 2a
+**Deploy URLs:** Backend: https://audio-notes-n5b2.onrender.com · Frontend: https://audio-notes-red.vercel.app · render.yaml PYTHON_VERSION=3.13.3 (Render configured manually in dashboard; render.yaml is documentation only)
+**Phase checklist:** [x] 0 Scaffold + hello-world deploy · [x] 1 DB/storage/upload API · [ ] 2a Gnani client+LLM+fixtures+mocked tests · [ ] 2b Worker+retries+real e2e · [ ] 3 Frontend · [ ] 4 Hardening+/architecture scaffold+deploy config · [ ] 5 Human: prose, mock interview, submit
 **Decisions made (human):** audio deleted after transcript stored: YES · LLM_MODEL: gemini-3.8-flash · Render region: Singapore
 **Deviations from this file:** none
-**Known issues / next steps:** Next.js pinned at 15.1.0 (has a deprecation warning about a CVE; update if desired before deploy). ESLint 9.39.5 deprecated warning (non-blocking).
+**Known issues / next steps:** Next.js pinned at 15.1.0 (has a deprecation warning about a CVE; update if desired before deploy). ESLint 9.39.5 deprecated warning (non-blocking). User's .env has JOBS_GLOBAL_PER_DAY=2 (tests override this to 100 via conftest).
 **Progress log (newest first, one line each: date · what · files touched · tests run):**
+- 2026-10-02 · Phase 1 complete: config.py extended (all §11 vars), db.py (lazy async engine), models.py (Upload, SQLAlchemy 2.x), constants.py (languages/extensions/errors from Gnani docs), schemas.py, services/storage.py (httpx Supabase REST), routes/jobs.py (GET /api/config, POST initiate/complete, GET jobs/job), Alembic migration 0001, tests (20 pass), smoke_upload.py · backend/app/{config,constants,db,models,schemas}.py, backend/app/services/{__init__,storage}.py, backend/app/routes/{__init__,jobs}.py, backend/app/main.py, backend/{requirements.txt,alembic.ini}, backend/alembic/{env.py,script.py.mako,versions/0001_create_uploads_table.py}, backend/tests/{__init__,conftest,test_jobs}.py, backend/scripts/smoke_upload.py · 20/20 tests pass ✓, /health → {"ok":true} ✓, /api/config → 8 languages + 10 extensions ✓
 - 2026-10-02 · Phase 0 complete: backend (FastAPI /health + CORS), frontend (Next.js health check page), .env.example, README.md, render.yaml, .gitignore · backend/app/{main,config,__init__}.py, backend/{requirements.txt,render.yaml}, frontend/src/app/{page,layout}.tsx, frontend/src/app/globals.css, frontend/{package.json,tsconfig.json,next.config.ts,postcss.config.mjs,eslint.config.mjs,.env.local,.gitignore}, .env.example, README.md · Backend /health → {"ok":true} ✓, CORS preflight → Access-Control-Allow-Origin: http://localhost:3000 ✓, Frontend serves at localhost:3000 ✓
 - 2026-10-02 · Context.md clarifications: added /api/config endpoint, resolved open decisions, clarified attempts/files_attempts/sweeper guards, added constants.py, Python 3.13, EST_RATIO via config, 140-char snippet definition, QUEUED status documented · Context.md · no tests
 **Session handoff note (≤10 lines, rewrite at the end of every session):**
-- Phase 0 scaffold is done. Backend runs at :8000, frontend at :3000. No DB, no business logic yet.
-- Backend: FastAPI with /health returning {"ok":true} and CORS from CORS_ORIGINS env var. Python 3.13, venv in backend/.venv.
-- Frontend: Next.js 15.1.0 App Router + TS + Tailwind v4. Home page calls NEXT_PUBLIC_API_URL/health and shows "Backend: ok" or "waking up…".
-- .env.example at repo root has all §11 vars with empty secrets and sensible defaults. frontend/.env.local has NEXT_PUBLIC_API_URL=http://localhost:8000.
-- render.yaml pins PYTHON_VERSION=3.13, all secrets sync:false.
-- .gitignore covers .env, .env.*, node_modules, .venv, __pycache__, .next. Frontend has its own standard .gitignore too.
-- No git init/commit/push was done (per user request). Human deploys from dashboards.
-- Next: Phase 1 = DB schema (Alembic), storage service, upload API endpoints.
+- Phase 1 is done. All upload API endpoints are in place, backed by SQLAlchemy 2.x async + asyncpg.
+- config.py extended with all §11 env vars (python-dotenv + os.getenv pattern, no pydantic-settings).
+- db.py creates the engine LAZILY so /health works without DATABASE_URL. Normalizes postgresql:// → postgresql+asyncpg://.
+- models.py: Upload model with Python-side defaults + PG server_defaults; generic Uuid type works in both PG and SQLite tests.
+- constants.py: languages (8 from Gnani Batch docs), extensions (10 from Gnani docs), error codes (§9). One source of truth.
+- services/storage.py: httpx calls to Supabase Storage REST (signed upload/download URLs, object_exists, delete). Never logs tokens.
+- routes/jobs.py: GET /api/config (no DB), POST initiate (validation + daily caps + signed upload URL), POST complete (verify object → queued), GET job, GET jobs (session-scoped, newest first, 140-char summary snippet).
+- Alembic migration 0001 is written. Run: `cd backend && alembic upgrade head` (needs DATABASE_URL in .env).
+- Signed upload URL is a raw PUT body (not multipart), confirmed via Supabase docs.
+- Next: Phase 2a = gnani.py + llm.py + fixtures + mocked tests (no worker).
+
 
 ## 16. Human-approved addenda (override earlier text where they conflict)
 1. CORS: `CORSMiddleware` with origins from `CORS_ORIGINS`, methods GET/POST/OPTIONS, `allow_headers` including `X-Session-Id` and `Content-Type` (the custom header triggers a preflight on every API call).
