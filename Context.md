@@ -209,28 +209,28 @@ Storage REST (call with `httpx`, `Authorization: Bearer <service key>` + `apikey
 Render: native Python runtime, build `pip install -r requirements.txt`, start `uvicorn app.main:app --host 0.0.0.0 --port $PORT`, health check `/health`, env vars set in dashboard. Vercel: root dir `frontend`, `NEXT_PUBLIC_API_URL` set in dashboard. Put Supabase and Render in the same/nearby region. Explicit CORS from `CORS_ORIGINS`.
 
 ## 15. State, progress log, handoff (AGENT KEEPS THIS SECTION CURRENT)
-**Current phase:** Phase 1 DONE — ready for Phase 2a
+**Current phase:** Phase 2a DONE — ready for Phase 2b
 **Deploy URLs:** Backend: https://audio-notes-n5b2.onrender.com · Frontend: https://audio-notes-red.vercel.app · render.yaml PYTHON_VERSION=3.13.3 (Render configured manually in dashboard; render.yaml is documentation only)
-**Phase checklist:** [x] 0 Scaffold + hello-world deploy · [x] 1 DB/storage/upload API · [ ] 2a Gnani client+LLM+fixtures+mocked tests · [ ] 2b Worker+retries+real e2e · [ ] 3 Frontend · [ ] 4 Hardening+/architecture scaffold+deploy config · [ ] 5 Human: prose, mock interview, submit
+**Phase checklist:** [x] 0 Scaffold + hello-world deploy · [x] 1 DB/storage/upload API · [x] 2a Gnani client+LLM+fixtures+mocked tests · [ ] 2b Worker+retries+real e2e · [ ] 3 Frontend · [ ] 4 Hardening+/architecture scaffold+deploy config · [ ] 5 Human: prose, mock interview, submit
 **Decisions made (human):** audio deleted after transcript stored: YES · LLM_MODEL: gemini-3.8-flash · Render region: Singapore
 **Deviations from this file:** none
-**Known issues / next steps:** Next.js pinned at 15.1.0 (has a deprecation warning about a CVE; update if desired before deploy). ESLint 9.39.5 deprecated warning (non-blocking). User's .env has JOBS_GLOBAL_PER_DAY=2 (tests override this to 100 via conftest).
+**Known issues / next steps:** Next.js pinned at 15.1.0 (has a deprecation warning about a CVE; update if desired before deploy). ESLint 9.39.5 deprecated warning (non-blocking). User's .env has JOBS_GLOBAL_PER_DAY=2 (tests override this to 100 via conftest). Unit tests run on SQLite with fakes — they never exercise Postgres-only SQL or the real Storage/Gnani APIs.
 **Progress log (newest first, one line each: date · what · files touched · tests run):**
+- 2026-10-02 · Phase 2a complete: gnani.py (paced async client, asyncio.Lock+1s spacing, normalize_gnani_error 4 shapes, defensive duration_seconds parsing, EmptyTranscriptError), llm.py (Gemini REST generateContent via httpx, ASR-aware prompt, chunked map-reduce for long transcripts), 7 scrubbed fixtures in docs/fixtures/, 21 mocked tests (storage URL prefix, delete success/failure, gnani error normalization ×6, empty transcript, duration parsing ×3, LLM chunking ×4). Fixed delete_object: uses client.request('DELETE') with json body, inspects response array, returns False on empty list, raises on HTTP error (no silent swallowing). Added signed-URL prefix test. smoke_upload.py cleanup moved to finally block. gnani_live_check.py script added. · backend/app/services/{gnani,llm}.py, backend/app/services/storage.py, backend/tests/test_phase2a.py, backend/scripts/{smoke_upload,gnani_live_check}.py, docs/fixtures/{gnani_create_job,gnani_start_job,gnani_get_job_completed,gnani_get_files,gnani_transcript,gnani_429_rate_limited,gnani_empty_transcript}.json · 41/41 tests pass ✓ (20 Phase 1 + 21 Phase 2a)
+- 2026-10-02 · Phase 1 verified live by human: migration 0001 applied; 28 columns, CHECKs and indexes checked in Supabase; smoke script passed against real Supabase; signed upload URL accepts raw PUT; RLS enabled on uploads and alembic_version (manual SQL); merged to main, tagged phase-1, deployed to Render and verified. Hand fixes: alembic/env.py rewritten to async (asyncpg); /storage/v1 prefix added to both signed-URL builders in storage.py; local .env dev caps raised (local only) · Context.md · n/a
 - 2026-10-02 · Phase 1 complete: config.py extended (all §11 vars), db.py (lazy async engine), models.py (Upload, SQLAlchemy 2.x), constants.py (languages/extensions/errors from Gnani docs), schemas.py, services/storage.py (httpx Supabase REST), routes/jobs.py (GET /api/config, POST initiate/complete, GET jobs/job), Alembic migration 0001, tests (20 pass), smoke_upload.py · backend/app/{config,constants,db,models,schemas}.py, backend/app/services/{__init__,storage}.py, backend/app/routes/{__init__,jobs}.py, backend/app/main.py, backend/{requirements.txt,alembic.ini}, backend/alembic/{env.py,script.py.mako,versions/0001_create_uploads_table.py}, backend/tests/{__init__,conftest,test_jobs}.py, backend/scripts/smoke_upload.py · 20/20 tests pass ✓, /health → {"ok":true} ✓, /api/config → 8 languages + 10 extensions ✓
 - 2026-10-02 · Phase 0 complete: backend (FastAPI /health + CORS), frontend (Next.js health check page), .env.example, README.md, render.yaml, .gitignore · backend/app/{main,config,__init__}.py, backend/{requirements.txt,render.yaml}, frontend/src/app/{page,layout}.tsx, frontend/src/app/globals.css, frontend/{package.json,tsconfig.json,next.config.ts,postcss.config.mjs,eslint.config.mjs,.env.local,.gitignore}, .env.example, README.md · Backend /health → {"ok":true} ✓, CORS preflight → Access-Control-Allow-Origin: http://localhost:3000 ✓, Frontend serves at localhost:3000 ✓
 - 2026-10-02 · Context.md clarifications: added /api/config endpoint, resolved open decisions, clarified attempts/files_attempts/sweeper guards, added constants.py, Python 3.13, EST_RATIO via config, 140-char snippet definition, QUEUED status documented · Context.md · no tests
 **Session handoff note (≤10 lines, rewrite at the end of every session):**
-- Phase 1 is done. All upload API endpoints are in place, backed by SQLAlchemy 2.x async + asyncpg.
-- config.py extended with all §11 env vars (python-dotenv + os.getenv pattern, no pydantic-settings).
-- db.py creates the engine LAZILY so /health works without DATABASE_URL. Normalizes postgresql:// → postgresql+asyncpg://.
-- models.py: Upload model with Python-side defaults + PG server_defaults; generic Uuid type works in both PG and SQLite tests.
-- constants.py: languages (8 from Gnani Batch docs), extensions (10 from Gnani docs), error codes (§9). One source of truth.
-- services/storage.py: httpx calls to Supabase Storage REST (signed upload/download URLs, object_exists, delete). Never logs tokens.
-- routes/jobs.py: GET /api/config (no DB), POST initiate (validation + daily caps + signed upload URL), POST complete (verify object → queued), GET job, GET jobs (session-scoped, newest first, 140-char summary snippet).
-- Alembic migration 0001 is written. Run: `cd backend && alembic upgrade head` (needs DATABASE_URL in .env).
-- Signed upload URL is a raw PUT body (not multipart), confirmed via Supabase docs.
-- Next: Phase 2a = gnani.py + llm.py + fixtures + mocked tests (no worker).
-
+- Phase 2a is done. gnani.py and llm.py are implemented but the worker that calls them is NOT (Phase 2b).
+- gnani.py: paced client (asyncio.Lock + ≥1s spacing), 30s per-call timeout, normalize_gnani_error handles all 4 shapes, parse_duration_seconds handles string, EmptyTranscriptError for no-speech.
+- llm.py: Gemini REST via httpx (no SDK), ASR-aware prompt, map-reduce chunking for transcripts > SUMMARY_CHUNK_CHARS*2, 2 retries on 429/5xx.
+- storage.py fixes: delete_object now uses client.request('DELETE') with JSON body (httpx .delete() doesn't accept json=), inspects the response array (empty = nothing deleted), raises on HTTP errors instead of silently swallowing.
+- smoke_upload.py cleanup is now in a finally block so failures don't leave orphaned rows/objects.
+- gnani_live_check.py: end-to-end script for the human to run; uploads to live-check- path, runs full Gnani flow, prints statuses + first 80 chars of transcript, deletes object and confirms deletion. Does not touch uploads table.
+- 7 scrubbed fixtures in docs/fixtures/ (create, start, job-completed, files, transcript, 429, empty-transcript).
+- 41/41 tests pass (20 Phase 1 + 21 Phase 2a). Tests are on SQLite with fakes; they never exercise PG-only SQL or real APIs.
+- Next: Phase 2b = worker.py, retry/retry-summary endpoints, real e2e test.
 
 ## 16. Human-approved addenda (override earlier text where they conflict)
 1. CORS: `CORSMiddleware` with origins from `CORS_ORIGINS`, methods GET/POST/OPTIONS, `allow_headers` including `X-Session-Id` and `Content-Type` (the custom header triggers a preflight on every API call).

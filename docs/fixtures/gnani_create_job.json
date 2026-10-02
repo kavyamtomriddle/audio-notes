@@ -1,0 +1,7 @@
+{
+  "job_id": "00000000-0000-0000-0000-000000000001",
+  "status": "CREATED",
+  "created_at": "2026-01-01T00:00:00.000000Z",
+  "message": "Job created. Call POST /stt/v3/batch/jobs/{job_id}/start to begin processing.",
+  "total_files_accepted": null
+}

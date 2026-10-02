@@ -53,6 +53,32 @@ def _make_tiny_wav() -> bytes:
     return header + b"\x80" * data_size  # 0x80 = silence in unsigned 8-bit PCM
 
 
+async def _cleanup(job_id: str, storage_path: str) -> None:
+    """Delete the storage object and DB row created during the smoke test."""
+    # Delete storage object
+    try:
+        from app.services.storage import delete_object
+        if storage_path:
+            deleted = await delete_object(storage_path)
+            print(f"Storage object deleted: {deleted}")
+    except Exception as e:
+        print(f"Storage cleanup failed: {e}")
+
+    # Delete DB row
+    try:
+        from app.db import get_engine
+        from sqlalchemy import text as sql_text
+        engine = get_engine()
+        async with engine.begin() as conn:
+            await conn.execute(
+                sql_text("DELETE FROM uploads WHERE id = :id"),
+                {"id": job_id},
+            )
+        print(f"DB row deleted: {job_id}")
+    except Exception as e:
+        print(f"DB cleanup failed (may need manual cleanup): {e}")
+
+
 async def main():
     parser = argparse.ArgumentParser(description="Smoke-test upload flow")
     parser.add_argument("--keep", action="store_true", help="Don't clean up after")
@@ -67,102 +93,85 @@ async def main():
     wav_data = _make_tiny_wav()
     print(f"WAV file: {len(wav_data)} bytes")
 
-    async with httpx.AsyncClient(timeout=30) as client:
-        # 1. Initiate
-        print("\n--- 1. POST /api/jobs/initiate ---")
-        resp = await client.post(
-            f"{backend_url}/api/jobs/initiate",
-            headers={"X-Session-Id": session_id},
-            json={
-                "filename": "smoke_test.wav",
-                "size_bytes": len(wav_data),
-                "content_type": "audio/wav",
-                "language_code": "en-IN",
-                "duration_hint_s": 0.0125,  # 100 bytes / 8000 Hz
-            },
-        )
-        print(f"Status: {resp.status_code}")
-        if resp.status_code != 201:
-            print(f"Error: {resp.text}")
-            sys.exit(1)
-        initiate_data = resp.json()
-        job_id = initiate_data["id"]
-        upload_url = initiate_data["upload_url"]
-        print(f"Job ID: {job_id}")
-        print(f"Upload URL length: {len(upload_url)} chars (not printing — contains token)")
+    job_id: str | None = None
+    storage_path: str = ""
 
-        # 2. PUT to Supabase signed upload URL
-        print("\n--- 2. PUT file to signed upload URL ---")
-        resp = await client.put(
-            upload_url,
-            content=wav_data,
-            headers={"Content-Type": "audio/wav"},
-        )
-        print(f"Status: {resp.status_code}")
-        if resp.status_code not in (200, 201):
-            print(f"Upload failed: {resp.text}")
-            print("NOTE: If this is multipart/form-data required, update Context.md §4/§11!")
-            sys.exit(1)
-        print("Upload successful!")
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            # 1. Initiate
+            print("\n--- 1. POST /api/jobs/initiate ---")
+            resp = await client.post(
+                f"{backend_url}/api/jobs/initiate",
+                headers={"X-Session-Id": session_id},
+                json={
+                    "filename": "smoke_test.wav",
+                    "size_bytes": len(wav_data),
+                    "content_type": "audio/wav",
+                    "language_code": "en-IN",
+                    "duration_hint_s": 0.0125,  # 100 bytes / 8000 Hz
+                },
+            )
+            print(f"Status: {resp.status_code}")
+            if resp.status_code != 201:
+                print(f"Error: {resp.text}")
+                sys.exit(1)
+            initiate_data = resp.json()
+            job_id = initiate_data["id"]
+            upload_url = initiate_data["upload_url"]
+            print(f"Job ID: {job_id}")
+            print(f"Upload URL length: {len(upload_url)} chars (not printing — contains token)")
 
-        # 3. Complete
-        print("\n--- 3. POST /api/jobs/{id}/complete ---")
-        resp = await client.post(
-            f"{backend_url}/api/jobs/{job_id}/complete",
-            headers={"X-Session-Id": session_id},
-        )
-        print(f"Status: {resp.status_code}")
-        if resp.status_code != 200:
-            print(f"Error: {resp.text}")
-            sys.exit(1)
-        print(f"Result: {resp.json()}")
+            # 2. PUT to Supabase signed upload URL
+            print("\n--- 2. PUT file to signed upload URL ---")
+            resp = await client.put(
+                upload_url,
+                content=wav_data,
+                headers={"Content-Type": "audio/wav"},
+            )
+            print(f"Status: {resp.status_code}")
+            if resp.status_code not in (200, 201):
+                print(f"Upload failed: {resp.text}")
+                print("NOTE: If this is multipart/form-data required, update Context.md §4/§11!")
+                sys.exit(1)
+            print("Upload successful!")
 
-        # 4. Get job
-        print("\n--- 4. GET /api/jobs/{id} ---")
-        resp = await client.get(
-            f"{backend_url}/api/jobs/{job_id}",
-            headers={"X-Session-Id": session_id},
-        )
-        print(f"Status: {resp.status_code}")
-        job_data = resp.json()
-        for key in ("id", "filename", "size_bytes", "status", "storage_path", "created_at"):
-            if key in job_data:
-                # Redact storage_path to avoid printing signed URLs
-                if key == "storage_path":
-                    print(f"  {key}: (set, not printed)")
-                else:
-                    print(f"  {key}: {job_data[key]}")
+            # 3. Complete
+            print("\n--- 3. POST /api/jobs/{id}/complete ---")
+            resp = await client.post(
+                f"{backend_url}/api/jobs/{job_id}/complete",
+                headers={"X-Session-Id": session_id},
+            )
+            print(f"Status: {resp.status_code}")
+            if resp.status_code != 200:
+                print(f"Error: {resp.text}")
+                sys.exit(1)
+            print(f"Result: {resp.json()}")
 
-        # 5. Clean up (unless --keep)
-        if not args.keep:
-            print("\n--- 5. Cleanup ---")
-            # Delete via the storage service directly (we need app config for this)
-            try:
-                from app.services.storage import delete_object
-                storage_path = job_data.get("storage_path", "")
-                if storage_path:
-                    deleted = await delete_object(storage_path)
-                    print(f"Storage object deleted: {deleted}")
-            except Exception as e:
-                print(f"Storage cleanup failed: {e}")
+            # 4. Get job
+            print("\n--- 4. GET /api/jobs/{id} ---")
+            resp = await client.get(
+                f"{backend_url}/api/jobs/{job_id}",
+                headers={"X-Session-Id": session_id},
+            )
+            print(f"Status: {resp.status_code}")
+            job_data = resp.json()
+            storage_path = job_data.get("storage_path", "")
+            for key in ("id", "filename", "size_bytes", "status", "storage_path", "created_at"):
+                if key in job_data:
+                    # Redact storage_path to avoid printing signed URLs
+                    if key == "storage_path":
+                        print(f"  {key}: (set, not printed)")
+                    else:
+                        print(f"  {key}: {job_data[key]}")
 
-            # Delete the DB row via SQL (we need the DB)
-            try:
-                from app.db import get_engine
-                from sqlalchemy import text as sql_text
-                engine = get_engine()
-                async with engine.begin() as conn:
-                    await conn.execute(
-                        sql_text("DELETE FROM uploads WHERE id = :id"),
-                        {"id": job_id},
-                    )
-                print(f"DB row deleted: {job_id}")
-            except Exception as e:
-                print(f"DB cleanup failed (may need manual cleanup): {e}")
-        else:
+        print("\nDone!")
+    finally:
+        # Always clean up unless --keep, even if the test failed partway through
+        if job_id and not args.keep:
+            print("\n--- Cleanup (finally) ---")
+            await _cleanup(job_id, storage_path)
+        elif args.keep:
             print("\n--keep specified, skipping cleanup")
-
-    print("\nDone!")
 
 
 if __name__ == "__main__":

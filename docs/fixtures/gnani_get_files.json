@@ -1,0 +1,11 @@
+{
+  "data": [
+    {
+      "file_id": "00000000-0000-0000-0000-000000000010",
+      "status": "COMPLETED",
+      "duration_seconds": "92.29",
+      "error_message": null,
+      "transcript_url": "https://REDACTED/transcript/00000000-0000-0000-0000-000000000010.json"
+    }
+  ]
+}

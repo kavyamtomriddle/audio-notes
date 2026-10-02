@@ -1,0 +1,7 @@
+{
+  "detail": {
+    "error_code": "RATE_LIMITED",
+    "message": "Rate limit exceeded. Please retry after some time.",
+    "status_code": 429
+  }
+}

@@ -133,26 +133,39 @@ async def delete_object(
     *,
     client: httpx.AsyncClient | None = None,
 ) -> bool:
-    """Delete an object from the bucket. Returns True if successful.
+    """Delete an object from the bucket.
 
-    Uses DELETE /storage/v1/object/{bucket}/{paths} with body.
-    Best-effort: logs errors but does not raise.
+    Returns True if the object was actually removed, False if Supabase
+    reported success but the object was not found (empty result list).
+    Raises on HTTP errors so callers can decide how to handle failures.
+
+    Supabase Storage REST: DELETE /storage/v1/object/{bucket}
+    Body: {"prefixes": ["exact/path/to/file.ext"]}
+    Response 200: JSON array of deleted object records (empty = nothing matched).
     """
     url = f"{_base_url()}/storage/v1/object/{SUPABASE_BUCKET}"
     _client = client or httpx.AsyncClient()
     try:
-        resp = await _client.delete(
+        resp = await _client.request(
+            "DELETE",
             url,
             headers={**_headers(), "Content-Type": "application/json"},
             json={"prefixes": [path]},
             timeout=15,
         )
-        if resp.status_code in (200, 204):
+        resp.raise_for_status()
+
+        # Supabase returns a JSON array of deleted objects.
+        # An empty list means the path did not match any existing object
+        # (Supabase still returns 200 in that case).
+        deleted_items = resp.json()
+        if isinstance(deleted_items, list) and len(deleted_items) > 0:
+            logger.info("Storage object deleted (path redacted)")
             return True
-        logger.warning("Storage delete returned %s for path (redacted)", resp.status_code)
-        return False
-    except Exception:
-        logger.exception("Storage delete failed for path (redacted)")
+
+        logger.warning(
+            "Storage delete returned 200 but nothing was removed (path redacted)"
+        )
         return False
     finally:
         if client is None:
