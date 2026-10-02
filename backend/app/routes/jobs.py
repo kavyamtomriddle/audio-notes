@@ -290,3 +290,62 @@ async def _get_job_for_session(
     if upload is None or upload.session_id != session_id:
         raise HTTPException(status_code=404, detail={"error_code": "NOT_FOUND", "message": "Job not found.", "retryable": False})
     return upload
+
+
+# ---------- POST /api/jobs/{id}/retry ----------
+
+@router.post("/jobs/{job_id}/retry", response_model=JobDetail)
+async def retry_job(
+    job_id: uuid.UUID,
+    x_session_id: str = Header(..., alias="X-Session-Id"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Retry a failed and retryable job."""
+    upload = await _get_job_for_session(db, job_id, x_session_id)
+
+    if upload.status != "failed" or not upload.retryable:
+        _error(409, "NOT_RETRYABLE", "Job is not in a failed and retryable state.")
+
+    now = datetime.now(timezone.utc)
+    upload.status = "queued"
+    upload.attempts = 0
+    upload.files_attempts = 0
+    upload.error_code = None
+    upload.error_message = None
+    upload.retryable = None
+    upload.summary_status = "pending"
+    upload.next_run_at = now
+    upload.lease_expires_at = None
+    upload.queued_at = now
+    upload.processing_started_at = None
+    upload.updated_at = now
+    
+    await db.flush()
+    return JobDetail.model_validate(upload)
+
+
+# ---------- POST /api/jobs/{id}/retry-summary ----------
+
+@router.post("/jobs/{job_id}/retry-summary", response_model=JobDetail)
+async def retry_summary(
+    job_id: uuid.UUID,
+    x_session_id: str = Header(..., alias="X-Session-Id"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Retry a failed summary step."""
+    upload = await _get_job_for_session(db, job_id, x_session_id)
+
+    if not upload.transcript or upload.summary_status != "failed":
+        _error(409, "NOT_RETRYABLE_SUMMARY", "Cannot retry summary unless transcript exists and summary failed.")
+
+    now = datetime.now(timezone.utc)
+    upload.status = "summarizing"
+    upload.summary_status = "pending"
+    upload.summary_error = None
+    upload.next_run_at = now
+    upload.lease_expires_at = None
+    upload.attempts = 0
+    upload.updated_at = now
+
+    await db.flush()
+    return JobDetail.model_validate(upload)
