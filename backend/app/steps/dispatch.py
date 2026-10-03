@@ -54,14 +54,14 @@ async def run_step(job: dict[str, Any], deps: Any) -> None:
         try:
             await step_fn(job, deps)
         except Exception as exc:
-            _log_unexpected(job_id, status, exc)
+            log_reschedule(job_id, status, exc, 30)
             await finish_step(deps.session, job_id, fields={}, next_run_in_s=30)
 
     elif status == "transcribing":
         try:
             await step_transcribing(job, deps)
         except Exception as exc:
-            _log_unexpected(job_id, status, exc)
+            log_reschedule(job_id, status, exc, 30)
             await finish_step(deps.session, job_id, fields={}, next_run_in_s=30)
 
     elif status == "summarizing":
@@ -70,7 +70,7 @@ async def run_step(job: dict[str, Any], deps: Any) -> None:
         try:
             await step_summarizing(job, deps)
         except Exception as exc:
-            _log_unexpected(job_id, status, exc)
+            log_reschedule(job_id, status, exc, 30)
             await finish_step(deps.session, job_id, fields={}, next_run_in_s=30)
 
     else:
@@ -85,10 +85,19 @@ async def run_step(job: dict[str, Any], deps: Any) -> None:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _log_unexpected(job_id: Any, status: str, exc: Exception) -> None:
-    """Log an unexpected exception with type and redacted message (no secrets)."""
-    safe_msg = _redact(str(exc))
-    logger.error(
-        "Job %s (status=%r): unexpected %s — rescheduling 30 s: %s",
-        job_id, status, type(exc).__name__, safe_msg,
+def log_reschedule(job_id: Any, status: str, exc: Exception, delay: int) -> None:
+    """Log a reschedule with type, frame, delay, and redacted message."""
+    safe_msg = _redact(repr(exc))
+    import traceback
+    tb = traceback.extract_tb(exc.__traceback__)
+    if tb:
+        last = tb[-1]
+        frame = f"{last.filename}:{last.name}"
+    else:
+        frame = "unknown"
+    
+    logger.warning(
+        "Job %s (status=%r): rescheduled %ds due to %s in %s: %s",
+        job_id, status, delay, type(exc).__name__, frame, safe_msg,
     )
+

@@ -15,9 +15,12 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
+import httpx
+
 from app.constants import ERR_PROVIDER_AUTH, ERR_PROVIDER_ERROR
 from app.services.gnani import GnaniAPIError, create_job, get_job, start_job
 from app.services.storage import create_signed_download_url
+from app.steps.dispatch import log_reschedule
 from app.worker import fail_job, finish_step
 
 logger = logging.getLogger(__name__)
@@ -56,12 +59,9 @@ async def step_queued(job: dict[str, Any], deps: Any) -> None:
                 job["storage_path"],
                 expires_in=10800,
             )
-        except Exception as exc:
+        except (httpx.RequestError, RuntimeError) as exc:
             # Storage error getting the signed URL — retryable
-            logger.info(
-                "Storage signed-URL error for job %s: %s",
-                job_id, type(exc).__name__,
-            )
+            log_reschedule(job_id, job.get("status", "queued"), exc, 30)
             await finish_step(
                 session, job_id,
                 fields={},
@@ -200,9 +200,7 @@ async def _handle_gnani_error(
             retryable=False,
         )
     elif err.retryable:
-        logger.info(
-            "Transient Gnani error for job %s: %s", job_id, err.code,
-        )
+        log_reschedule(job_id, "queued", exc, 30)
         await finish_step(
             session, job_id,
             fields={},

@@ -191,6 +191,33 @@ async def test_caplog_no_token_on_exception(caplog):
         assert "supersecretvalue123" not in record.message
 
 
+@pytest.mark.asyncio
+async def test_caplog_warning_no_signed_url_on_exception(caplog):
+    """A non-storage exception reaches dispatch and logs at WARNING or higher; no signed URL or token."""
+    signed_url = (
+        "https://example.supabase.co/storage/v1/object/sign/bucket/audio.mp3"
+        "?token=eyJhbGciOiJIUzI1NiJ9.PAYLOAD.SIG"
+    )
+    job = _make_job(status="transcribing")
+    deps = _make_deps()
+
+    with (
+        patch("app.steps.dispatch.step_transcribing", new_callable=AsyncMock) as mock_st,
+        patch("app.steps.dispatch.finish_step", new_callable=AsyncMock),
+        caplog.at_level(logging.WARNING, logger="app.steps.dispatch"),
+    ):
+        # ValueError is a non-storage exception
+        mock_st.side_effect = ValueError(f"Crash: {signed_url}")
+        from app.steps.dispatch import run_step
+        await run_step(job, deps)
+
+    assert len(caplog.records) > 0
+    for record in caplog.records:
+        assert record.levelno >= logging.WARNING
+        assert "supabase.co" not in record.message
+        assert "eyJhbGciOiJIUzI1NiJ9" not in record.message
+
+
 # ---------------------------------------------------------------------------
 # Tests: redact() re-export from dispatch
 # ---------------------------------------------------------------------------
