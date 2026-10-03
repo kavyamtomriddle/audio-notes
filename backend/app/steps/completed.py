@@ -139,21 +139,14 @@ async def handle_completed(job: dict[str, Any], deps: Any) -> None:
             "Job %s: file status=%r error_message=%r",
             job_id, file_status, error_message,
         )
-        # Check if the error indicates silent / music-only audio.
-        if _is_empty_transcript_error(error_message):
-            await fail_job(
-                session, job_id,
-                ERR_NO_SPEECH,
-                "No speech was detected in the audio.",
-                retryable=False,
-            )
-        else:
-            await fail_job(
-                session, job_id,
-                ERR_CORRUPT_AUDIO,
-                "The speech provider could not read the file.",
-                retryable=False,
-            )
+        from app.steps.errors import classify_file_error
+        err_code, retryable, friendly_msg = classify_file_error(error_message)
+        await fail_job(
+            session, job_id,
+            err_code,
+            friendly_msg,
+            retryable=retryable,
+        )
         return
 
     if not transcript_url:
@@ -247,20 +240,3 @@ async def handle_completed(job: dict[str, Any], deps: Any) -> None:
                 "Job %s: best-effort storage delete failed (path redacted): %s",
                 job_id, exc,
             )
-
-
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
-
-def _is_empty_transcript_error(error_message: str | None) -> bool:
-    """Return True if the file-level error_message indicates silent audio.
-
-    Gnani documents: 'Empty transcript after 3 retries'-style messages map
-    to NO_SPEECH_DETECTED (Context.md §3 / §8).
-    We do a case-insensitive substring check on a few known patterns.
-    """
-    if not error_message:
-        return False
-    lower = error_message.lower()
-    return "empty transcript" in lower or "no speech" in lower

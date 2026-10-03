@@ -172,11 +172,14 @@ async def _handle_failed_terminal(
             job_id, error_detail, gnani_status,
         )
 
+    from app.steps.errors import classify_file_error
+    err_code, retryable, friendly_msg = classify_file_error(error_detail)
+
     # Persist gnani_status before failing so the DB reflects the terminal state
     await fail_job(
         session, job_id,
-        ERR_PROVIDER_ERROR,
-        _FAIL_MSG,
-        retryable=True,
-        clear_gnani=True,
+        err_code,
+        friendly_msg,
+        retryable=retryable,
+        clear_gnani=True if retryable else False,
     )
