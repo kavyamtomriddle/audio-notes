@@ -142,16 +142,25 @@ async def shutdown_worker(
 # ---------------------------------------------------------------------------
 
 def build_default_worker() -> dict:
-    """Return {"claim", "run_step", "sweep", "release"} closures.
+    """Return {"claim", "run_step", "sweep", "release", "client"} closures.
 
     Each closure opens its own transactional_session so every DB operation
     has an explicit commit boundary.
+
+    One shared httpx.AsyncClient is created (default timeout=60 s; services
+    pass their own per-call timeouts).  It is returned under key "client"
+    so the lifespan can close it after the worker stops.
     """
+    import httpx
+
     from app.steps.deps import make_deps, transactional_session
     from app.steps import dispatch
-    from app.services import gnani as gnani_mod, storage as storage_svc
+    from app.services import storage as storage_svc
     from app import sweeper as sweeper_mod
     from app.worker import claim_job, release_lease
+
+    # Shared HTTP client for Gnani AND LLM calls (both accept per-call timeouts).
+    client = httpx.AsyncClient(timeout=60)
 
     async def _claim():
         async with transactional_session() as s:
@@ -161,8 +170,8 @@ def build_default_worker() -> dict:
         async with transactional_session() as s:
             deps = make_deps(
                 s,
-                gnani_client=gnani_mod,
-                llm_client=None,  # llm is imported inside step_summarizing
+                gnani_client=client,
+                llm_client=client,
             )
             await dispatch.run_step(job, deps)
 
@@ -189,4 +198,5 @@ def build_default_worker() -> dict:
         "run_step": _run_step,
         "sweep": _sweep,
         "release": _release,
+        "client": client,
     }

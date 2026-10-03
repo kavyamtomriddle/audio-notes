@@ -484,11 +484,15 @@ async def test_lifespan_starts_and_stops_exactly_one_task(monkeypatch):
 
     monkeypatch.setattr(config_mod, "ENABLE_WORKER", True)
 
+    fake_http_client = MagicMock()
+    fake_http_client.aclose = AsyncMock()
+
     fake_closures = {
         "claim": AsyncMock(return_value=None),
         "run_step": AsyncMock(),
         "sweep": AsyncMock(),
         "release": AsyncMock(),
+        "client": fake_http_client,
     }
     monkeypatch.setattr(main_mod, "build_default_worker",
                         lambda: fake_closures)

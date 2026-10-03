@@ -19,6 +19,7 @@ async def lifespan(app: FastAPI):
     """
     if config.ENABLE_WORKER:
         closures = build_default_worker()
+        http_client = closures["client"]
         stop_event = asyncio.Event()
         state = LoopState()
         task = asyncio.create_task(
@@ -31,8 +32,11 @@ async def lifespan(app: FastAPI):
             ),
             name="worker",
         )
-        yield
-        await shutdown_worker(task, stop_event, state, closures["release"])
+        try:
+            yield
+        finally:
+            await shutdown_worker(task, stop_event, state, closures["release"])
+            await http_client.aclose()
     else:
         yield
 
