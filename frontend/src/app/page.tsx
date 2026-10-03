@@ -1,58 +1,32 @@
 "use client";
+/**
+ * Home page — Phase F1c.
+ *
+ * Shows a HealthBanner while the server is not ready.
+ * Waits for config to load ("Loading settings…"), then renders UploadForm.
+ */
 
-import { useEffect, useState } from "react";
-
-type HealthStatus = "loading" | "ok" | "waking";
+import { useHealth } from "../hooks/useHealth";
+import { useConfig } from "../hooks/useConfig";
+import { HealthBanner } from "../components/HealthBanner";
+import { UploadForm } from "../components/UploadForm";
 
 export default function Home() {
-  const [status, setStatus] = useState<HealthStatus>("loading");
-
-  useEffect(() => {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-    if (!apiUrl) {
-      console.error("NEXT_PUBLIC_API_URL is not set");
-      setStatus("waking");
-      return;
-    }
-
-    const controller = new AbortController();
-    const timer = setTimeout(() => {
-      // If response takes > 3 s, show "waking up" while we keep waiting
-      setStatus("waking");
-    }, 3000);
-
-    fetch(`${apiUrl}/health`, { signal: controller.signal })
-      .then((res) => {
-        clearTimeout(timer);
-        if (res.ok) setStatus("ok");
-        else setStatus("waking");
-      })
-      .catch(() => {
-        clearTimeout(timer);
-        setStatus("waking");
-      });
-
-    return () => {
-      clearTimeout(timer);
-      controller.abort();
-    };
-  }, []);
+  const health = useHealth();
+  const { config, error: configError, loading: configLoading } = useConfig();
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-gray-50">
-      <div className="rounded-lg bg-white p-8 shadow-md text-center">
-        <h1 className="text-2xl font-bold mb-4">Audio Notes</h1>
-        {status === "loading" && (
-          <p className="text-gray-500">Checking backend…</p>
+    <main className="flex min-h-screen flex-col items-center bg-gray-50 px-4 py-12">
+      <div className="w-full max-w-lg space-y-6">
+        <h1 className="text-2xl font-bold text-gray-900">Audio Notes</h1>
+
+        <HealthBanner health={health} configError={configError} />
+
+        {configLoading && (
+          <p className="text-sm text-gray-500">Loading settings…</p>
         )}
-        {status === "ok" && (
-          <p className="text-green-600 font-medium">Backend: ok</p>
-        )}
-        {status === "waking" && (
-          <p className="text-amber-600 font-medium">
-            Backend: waking up… (free tier, up to ~1 min)
-          </p>
-        )}
+
+        {config && <UploadForm config={config} />}
       </div>
     </main>
   );
