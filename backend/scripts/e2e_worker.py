@@ -80,6 +80,8 @@ async def main():
     job_id: str | None = None
     storage_path: str = ""
 
+    cleanup_allowed = False
+
     start_time = time.time()
     
     try:
@@ -111,6 +113,7 @@ async def main():
                     
                 if args.expect.startswith("rejected:") and args.expect.split(":", 1)[1] == err_code:
                     print("Matched expected rejection.")
+                    cleanup_allowed = True
                     sys.exit(0)
                 else:
                     print("Unexpected rejection.")
@@ -188,6 +191,8 @@ async def main():
             transcript = job_data.get("transcript") or ""
             summary = job_data.get("summary") or ""
             
+            cleanup_allowed = True
+            
             print(f"Job ID: {job_id}")
             print(f"Session ID: {session_id}")
             print(f"Status: {status}")
@@ -211,34 +216,13 @@ async def main():
                 print(f"Outcome did not match expectation: {args.expect}")
                 sys.exit(1)
 
-    except KeyboardInterrupt:
-        print("\nCtrl+C detected.")
-        if job_id:
-            print(f"Job ID: {job_id}")
-        if storage_path:
-            print("Storage path: (set, not printed)")
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        print(f"\nInterrupted: NOT cleaning up (job may still be in flight). Job id: {job_id}, storage path: {storage_path}")
         sys.exit(130)
     finally:
-        # sys.exit raises SystemExit which is caught by finally
-        # we check the exit code to determine if we should clean up
-        exc_info = sys.exc_info()
-        exit_code = 0
-        if exc_info[0] is SystemExit:
-            exit_code = exc_info[1].code
-            
-        if exit_code in (2, 130):
-            print("\nTimeout or Ctrl+C, skipping cleanup.")
-        elif not args.keep and (job_id or storage_path):
+        if cleanup_allowed and not args.keep:
             print("\n--- Cleanup ---")
-            # asyncio.run() doesn't work well if we're inside one already.
-            # But we are in an async function, so just await
             await _cleanup(job_id, storage_path)
-        elif args.keep:
-            print("\n--keep specified, skipping cleanup.")
-            
-        if exit_code is not None and exit_code != 0:
-            # We don't want to re-raise if it's 0 (success)
-            sys.exit(exit_code)
             
 if __name__ == "__main__":
     asyncio.run(main())
