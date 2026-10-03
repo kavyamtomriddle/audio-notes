@@ -585,3 +585,47 @@ class TestClaimUpdatedAt:
         assert row_after["updated_at"] is not None
         assert row_after["attempts"] == 1
         assert row_after["updated_at"] >= old_updated - timedelta(seconds=2)
+
+
+class TestClaimReturnsAllColumns:
+    """claim_job must return the full uploads row (Fix A)."""
+
+    async def test_claim_returns_all_columns(self, session):
+        """
+        claimed dict must contain every Upload column, with attempts==1
+        and a non-null lease_expires_at (post-update state).
+        """
+        from app.models import Upload
+
+        # Collect every mapped column name from the ORM model.
+        expected_columns = {col.key for col in Upload.__table__.columns}
+
+        job_id = await _insert_job(
+            session,
+            status="queued",
+            gnani_job_id="gnani-abc",
+            gnani_started=False,
+            gnani_status=None,
+            storage_path=f"test/{uuid.uuid4().hex}/audio.mp3",
+            language_code="en-IN",
+            files_attempts=0,
+        )
+
+        claimed = await claim_job(session)
+        assert claimed is not None, "Expected a job to be claimed"
+
+        # Every Upload column must be present in the returned dict.
+        missing = expected_columns - set(claimed.keys())
+        assert not missing, f"claim_job dict is missing columns: {missing}"
+
+        # Post-update invariants: attempts incremented, lease acquired.
+        assert claimed["attempts"] == 1, (
+            f"Expected attempts==1 after claim, got {claimed['attempts']}"
+        )
+        assert claimed["lease_expires_at"] is not None, (
+            "lease_expires_at must be non-null after claim"
+        )
+
+        # Spot-check that the row id matches.
+        assert claimed["id"] == job_id
+

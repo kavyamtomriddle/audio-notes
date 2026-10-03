@@ -60,8 +60,9 @@ async def claim_job(session: AsyncSession) -> dict[str, Any] | None:
     """
     Atomically claim the next eligible job.
 
-    Returns a dict with 'id' and 'status' (fetched after the update),
-    or None if nothing is claimable. The caller must commit/rollback.
+    Returns a dict with ALL columns of the uploads row (reflecting the
+    post-update state: attempts incremented, lease_expires_at set), or
+    None if nothing is claimable. The caller must commit/rollback.
 
     If attempts after increment exceeds MAX_CLAIMS, the job is marked
     failed (WORKER_STUCK, retryable) and None is returned.
@@ -98,14 +99,15 @@ async def claim_job(session: AsyncSession) -> dict[str, Any] | None:
         {"job_id": job_id, "new_attempts": new_attempts},
     )
 
-    # Re-read the row's status so the caller knows which step to run
-    status_row = await session.execute(
-        text("SELECT status FROM uploads WHERE id = :job_id"),
+    # Re-read the full row so step functions can access all columns
+    # (storage_path, language_code, gnani_job_id, etc.) without KeyError.
+    # The SELECT reflects the post-update state: attempts incremented, lease set.
+    full_row = await session.execute(
+        text("SELECT * FROM uploads WHERE id = :job_id"),
         {"job_id": job_id},
     )
-    status = status_row.scalar_one()
-
-    return {"id": job_id, "status": status}
+    row_mapping = full_row.mappings().first()
+    return dict(row_mapping)
 
 
 # ---------------------------------------------------------------------------
