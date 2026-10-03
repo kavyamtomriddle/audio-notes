@@ -198,6 +198,7 @@ Storage REST (call with `httpx`, `Authorization: Bearer <service key>` + `apikey
 - On first load call `/health`; if slow (>3 s) show "Server is waking up (free tier, up to ~1 min)".
 - `/architecture` : scaffold only (headings + placeholder `TODO(human)` paragraphs + a "Facts to cover" list taken from this file + repo link). The human writes the prose. Include sections: flow upload→transcript, where files live, long audio handling (Gnani Batch via signed URL, 50 MB bound), sync vs background, failure handling, limits/abuse, known limitations (§8), alternatives considered (REST 30 s limit + chunking with ffmpeg; webhooks; Redis/Celery), what we'd do with more time.
 - Accessibility basics, mobile-friendly, no UI libraries beyond Tailwind unless asked.
+- **Corrections:** (a) the summary is shown as plain text (whitespace-pre-wrap), no markdown library; (b) API timestamps are parsed by ONE helper that treats a missing timezone as UTC and trims fractional seconds to 3 digits (Safari); (c) elapsed = max(0, now - processing_started_at); if duration_hint_s is missing or est_ratio unavailable the bar is indeterminate; (d) the job page is a client component using useParams; (e) /architecture is scaffolded in Phase 3 (F4); the human writes the prose.
 
 ## 14. Repo layout & deployment
 ```
@@ -206,20 +207,21 @@ Storage REST (call with `httpx`, `Authorization: Bearer <service key>` + `apikey
            app/services/{storage.py,gnani.py,llm.py}, app/worker.py (DB helpers only), app/sweeper.py, app/loop.py,
            app/steps/{deps.py,queued.py,transcribing.py,completed.py,summarizing.py,dispatch.py},
            alembic/, tests/, requirements.txt, render.yaml)
-/frontend (Next.js app, vercel.json only if needed)
+/frontend (Next.js app, vercel.json only if needed; approved files: src/lib/{types,session,api,upload,errors,validate,audio,stage,polling}.ts; src/hooks/{useConfig,useHealth,usePollJob}.ts; src/components/{HealthBanner,UploadForm,JobStatus,TranscriptPanel,SummaryPanel,ErrorPanel,HistoryList}.tsx; src/app/{page.tsx, jobs/[id]/page.tsx, architecture/page.tsx}; src/lib/tests/*.test.ts; vitest.config.ts)
 /docs/fixtures (scrubbed Gnani responses: create, start, job, files, transcript, 429, empty-transcript)
 ```
 Step functions live in `app/steps/`; `app/worker.py` keeps only the DB helpers.
 Render: native Python runtime, build `pip install -r requirements.txt`, start `uvicorn app.main:app --host 0.0.0.0 --port $PORT`, health check `/health`, env vars set in dashboard. Vercel: root dir `frontend`, `NEXT_PUBLIC_API_URL` set in dashboard. Put Supabase and Render in the same/nearby region. Explicit CORS from `CORS_ORIGINS`.
 
-## 15. State, progress log, handoff (AGENT KEEPS THIS SECTION CURRENT)
-**Current phase:** Phase 3 not started
+### 15. State, progress log, handoff (AGENT KEEPS THIS SECTION CURRENT)
+**Current phase:** Phase 3 - frontend (branch wip-phase-3)
 **Deploy URLs:** Backend: https://audio-notes-n5b2.onrender.com · Frontend: https://audio-notes-red.vercel.app · render.yaml PYTHON_VERSION=3.13.3 (Render configured manually in dashboard; render.yaml is documentation only)
-**Phase checklist:** [x] 0 Scaffold + hello-world deploy · [x] 1 DB/storage/upload API · [x] 2a Gnani client+LLM+fixtures+mocked tests (human-verified: 47 tests pass, live check reached COMPLETED, 202/409/START_FAILED handled, object_exists/delete_object use Storage LIST API) · [x] 2b-i · [x] 2b-ii-a · [x] 2b-ii-b · [x] 2b-ii-c · [x] 2b-ii-d · [x] 2b-iii-a · [x] 2b-iii-b · [x] 2b-iii-c · [x] 2b-iii-d · [x] Fix A–E · [ ] 3 Frontend · [ ] 4 Hardening+/architecture scaffold+deploy config · [ ] 5 Human: prose, mock interview, submit
+**Phase checklist:** [x] 0 Scaffold + hello-world deploy · [x] 1 DB/storage/upload API · [x] 2a Gnani client+LLM+fixtures+mocked tests (human-verified: 47 tests pass, live check reached COMPLETED, 202/409/START_FAILED handled, object_exists/delete_object use Storage LIST API) · [x] 2b-i · [x] 2b-ii-a · [x] 2b-ii-b · [x] 2b-ii-c · [x] 2b-ii-d · [x] 2b-iii-a · [x] 2b-iii-b · [x] 2b-iii-c · [x] 2b-iii-d · [x] Fix A–E · [ ] 3 Frontend (F1a, F1b, F1c, F2a, F2b, F2c, F3, F4, F5) · [ ] 4 Hardening+/architecture scaffold+deploy config · [ ] 5 Human: prose, mock interview, submit
 **Decisions made (human):** audio deleted after transcript stored: YES · LLM_MODEL: gemini-3.8-flash · Render region: Singapore
 **Deviations from this file:** 2b-ii-b created app/steps/__init__.py (not in allowed-files list but required for Python package imports)
-**Known issues / next steps:** Next: Phase 3 Frontend. deps.py provides transactional_session (commit/rollback) and Deps dataclass; steps use deps.session and deps.gnani_client; commits are owned by transactional_session in the loop, not by individual steps. queued.py conforms to the same import style as transcribing.py (imports worker helpers and gnani directly at module level). Next.js pinned at 15.1.0 (has a deprecation warning about a CVE; update if desired before deploy). ESLint 9.39.5 deprecated warning (non-blocking). User's .env has JOBS_GLOBAL_PER_DAY=2 (tests override this to 100 via conftest). Unit tests run on SQLite with fakes — they never exercise Postgres-only SQL or the real Storage/Gnani APIs. Integration tests (19) use a throwaway Postgres schema and exercise the real claim/lease/step SQL; excluded by default via pyproject.toml addopts = -m "not integration". Config uses plain module-level variables (not pydantic-settings); worker.py imports MAX_CLAIMS directly. sweeper.sweep() calls session.commit() internally; the transactional_session in the sweep closure handles this (SQLAlchemy's session.begin() context is a no-op on already-committed transactions). Lifespan reads config.ENABLE_WORKER via `from app import config` (module reference, not value copy) so monkeypatching works in tests. conftest.py's ASGITransport does NOT run the lifespan; no existing test enters it. 2b-i facts: pyproject sets asyncio_default_fixture_loop_scope = "module"; integration tests use NullPool and statement_cache_size=0; integration tests use DB-side now() (Python clocks drifted from the DB); the updated_at integration assertions only allow a 2 s tolerance, so they are weak (strengthen later, low priority).
+**Known issues / next steps:** Phase 2 complete and merged (tag phase-2); real API fixtures live in docs/fixtures/api_*.json. Next: Phase 3 Frontend. deps.py provides transactional_session (commit/rollback) and Deps dataclass; steps use deps.session and deps.gnani_client; commits are owned by transactional_session in the loop, not by individual steps. queued.py conforms to the same import style as transcribing.py (imports worker helpers and gnani directly at module level). Next.js pinned at 15.1.0 (has a deprecation warning about a CVE; update if desired before deploy). ESLint 9.39.5 deprecated warning (non-blocking). User's .env has JOBS_GLOBAL_PER_DAY=2 (tests override this to 100 via conftest). Unit tests run on SQLite with fakes — they never exercise Postgres-only SQL or the real Storage/Gnani APIs. Integration tests (19) use a throwaway Postgres schema and exercise the real claim/lease/step SQL; excluded by default via pyproject.toml addopts = -m "not integration". Config uses plain module-level variables (not pydantic-settings); worker.py imports MAX_CLAIMS directly. sweeper.sweep() calls session.commit() internally; the transactional_session in the sweep closure handles this (SQLAlchemy's session.begin() context is a no-op on already-committed transactions). Lifespan reads config.ENABLE_WORKER via `from app import config` (module reference, not value copy) so monkeypatching works in tests. conftest.py's ASGITransport does NOT run the lifespan; no existing test enters it. 2b-i facts: pyproject sets asyncio_default_fixture_loop_scope = "module"; integration tests use NullPool and statement_cache_size=0; integration tests use DB-side now() (Python clocks drifted from the DB); the updated_at integration assertions only allow a 2 s tolerance, so they are weak (strengthen later, low priority).
 **Progress log (newest first, one line each: date · what · files touched · tests run):**
+- 2026-10-03 · Updated Context.md to prep Phase 3 (Frontend guardrails, §13 corrections, §14 layout, reset checklist, recorded Phase 2 complete). · Context.md · n/a
 - 2026-10-03 · Phase 2 verified live: Gnani reports file errors via FAILED job with messages like "no speech detected in Ns of audio" and "ffprobe could not read the file", mapped by classify_file_error; PROVIDER_AUTH and summary_failed paths verified live; retry, retry-summary and crash recovery results verified live. · Context.md · n/a
 - 2026-10-03 · Fix E: unified error classification in `classify_file_error` for transcribing/completed. Added 5 tests for error classification. · backend/app/steps/{errors,transcribing,completed}.py, backend/tests/steps/test_errors.py, Context.md · 160 unit pass
 - 2026-10-03 · Fix D: build_default_worker creates one shared httpx.AsyncClient(timeout=60), passes as both gnani_client and llm_client (was passing the gnani module + None). Lifespan closes client in finally. 5 new tests in test_worker_wiring.py (real service calls via MockTransport, type check, is_closed, no secrets, AST static check). Updated test_loop.py lifespan test for new "client" key. · backend/app/{loop,main}.py, backend/tests/{test_worker_wiring,test_loop}.py, Context.md · 155 unit pass
@@ -247,12 +249,9 @@ Render: native Python runtime, build `pip install -r requirements.txt`, start `u
 - 2026-10-02 · Phase 0 complete: backend (FastAPI /health + CORS), frontend (Next.js health check page), .env.example, README.md, render.yaml, .gitignore · backend/app/{main,config,__init__}.py, backend/{requirements.txt,render.yaml}, frontend/src/app/{page,layout}.tsx, frontend/src/app/globals.css, frontend/{package.json,tsconfig.json,next.config.ts,postcss.config.mjs,eslint.config.mjs,.env.local,.gitignore}, .env.example, README.md · Backend /health → {"ok":true} ✓, CORS preflight → Access-Control-Allow-Origin: http://localhost:3000 ✓, Frontend serves at localhost:3000 ✓
 - 2026-10-02 · Context.md clarifications: added /api/config endpoint, resolved open decisions, clarified attempts/files_attempts/sweeper guards, added constants.py, Python 3.13, EST_RATIO via config, 140-char snippet definition, QUEUED status documented · Context.md · no tests
 **Session handoff note (≤10 lines, rewrite at the end of every session):**
-- Phase 2 and Fixes A-E are fully complete and verified.
-- Gnani file errors ("no speech detected...", "ffprobe could not read...") are mapped by `classify_file_error`.
-- Live verified `PROVIDER_AUTH`, `summary_failed`, retry, retry-summary, and crash recovery paths.
-- Known limits: a repeating step bug retries every 30s until 2h sweeper limit; worker only runs while Render instance is awake.
-- Current phase is "Phase 3 not started".
-- Ready to begin Frontend implementation (Phase 3).
+- Phase 2 is complete and merged (tag phase-2); real API fixtures live in `docs/fixtures/api_*.json`.
+- Updated Context.md with Phase 3 instructions, guardrails, and §13/§14 corrections.
+- Current phase is "Phase 3 - frontend". Ready to begin F1a.
 
 ## 16. Human-approved addenda (override earlier text where they conflict)
 1. CORS: `CORSMiddleware` with origins from `CORS_ORIGINS`, methods GET/POST/OPTIONS, `allow_headers` including `X-Session-Id` and `Content-Type` (the custom header triggers a preflight on every API call).
@@ -279,3 +278,24 @@ Output limits: create or edit ONE file per tool call; keep each chunk ≤ ~150 l
 After each checkpoint update the §15 handoff note (≤ 5 lines) so a cutoff leaves a resumable state.
 No git commands, no .env, no live API calls, no integration tests, no new dependencies, no changes to pytest config.
 Scheduling fields (next_run_at, lease_expires_at) are set only by the worker.py helpers (DB-side now()). processing_started_at and completed_at may use Python UTC time.
+
+## 18. Frontend guardrails (autonomous Phase 3)
+Allowed files: only those named in the prompt. Everything else is READ-ONLY: all of backend/, docs/, Context.md (except §15), package-lock.json, config files, and every file from an earlier micro-phase. If a change to a read-only file seems necessary, STOP and ask.
+
+Contract source of truth: backend/app/schemas.py, backend/app/routes/jobs.py, backend/app/constants.py and the real captured responses docs/fixtures/api_*.json. Open them in THIS thread and copy field names, types and error codes exactly. Never invent fields. Never rely on memory, summaries or subagent reports; verify any subagent claim by opening the file yourself.
+
+Checks (run from frontend/): npm run lint, npx tsc --noEmit, npm run build, and after F2a npm test. Fix failures yourself, at most 3 iterations per failure group (hypothesis, smallest change in allowed files, rerun). Then STOP and report: failing output, hypothesis, what you tried. Never weaken checks: no any, @ts-ignore, eslint-disable, disabled rules, deleted/skipped/loosened tests, or changed expected values.
+
+Do not start or stop dev servers, do not call the backend with curl, no git, no .env files, no new dependencies (sole exception: devDependency vitest in F2a). No UI, markdown, state or HTTP libraries.
+
+Contract rules: the API base URL is read ONLY in src/lib/api.ts from process.env.NEXT_PUBLIC_API_URL; every request except /health and /api/config sends header X-Session-Id (session id only via src/lib/session.ts, localStorage only there); languages, extensions, max_upload_bytes, max_duration_hint_s and est_ratio come ONLY from /api/config (no hardcoded copies, no literal language codes or extension lists outside tests); upload uses XMLHttpRequest with upload.onprogress, never fetch; the signed upload_url is never logged, printed, rendered, stored or put in error messages; no console.log; no dangerouslySetInnerHTML.
+
+No silent failures: every failed request or upload sets visible UI state (friendly message, plus Retry only when valid). No empty catch and no catch that only logs. Unknown error codes show a generic message that includes the raw code. console.error only with redacted data.
+
+Polling talks only to our API, uses recursive setTimeout after each completed request (never overlapping requests, never setInterval for fetching), stops on terminal states, aborts in-flight requests on unmount (AbortController), backs off on network errors, and is safe under React StrictMode double effects.
+
+Files: one file per tool call, ≤150 lines per chunk, components ≤150 lines (split if larger), TypeScript strict, "use client" only where hooks or browser APIs are used.
+
+After each checkpoint update the §15 handoff note (≤5 lines). Final summary ≤10 lines.
+
+Compiling and rendering prove nothing about the real contract. The human verifies with a real browser run against the real backend; when a prompt says GATE, stop and wait.
