@@ -1,1 +1,16 @@
 @import "tailwindcss";
+
+/* ============================================================
+   Base light-mode polish
+   ============================================================ */
+
+/* Smooth progress bar width transitions — used by JobStatus and UploadForm */
+.progress-fill {
+  transition: width 0.5s ease-out;
+}
+
+/* Drag-active state on the dropzone label (toggled by JS class) */
+.dropzone-dragover {
+  border-color: #3b82f6; /* blue-500 */
+  background-color: #eff6ff; /* blue-50 */
+}

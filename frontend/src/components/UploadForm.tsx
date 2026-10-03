@@ -64,6 +64,8 @@ export function UploadForm({ config, onCreated }: UploadFormProps) {
   const [error, setError] = useState<string | null>(null);
   const [doneId, setDoneId] = useState<string | null>(null);
   const [busyMsg, setBusyMsg] = useState<string>("");
+  /** Visual-only: true while a dragged file is over the dropzone */
+  const [isDragOver, setIsDragOver] = useState<boolean>(false);
   const abortRef = useRef<AbortController | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -201,6 +203,7 @@ export function UploadForm({ config, onCreated }: UploadFormProps) {
 
   function handleDrop(e: React.DragEvent<HTMLLabelElement>) {
     e.preventDefault();
+    setIsDragOver(false);
     if (busy) return;
     const dropped = e.dataTransfer.files[0];
     if (dropped) pickFile(dropped);
@@ -208,6 +211,16 @@ export function UploadForm({ config, onCreated }: UploadFormProps) {
 
   function handleDragOver(e: React.DragEvent<HTMLLabelElement>) {
     e.preventDefault();
+  }
+
+  function handleDragEnter(e: React.DragEvent<HTMLLabelElement>) {
+    e.preventDefault();
+    if (!busy) setIsDragOver(true);
+  }
+
+  function handleDragLeave(e: React.DragEvent<HTMLLabelElement>) {
+    e.preventDefault();
+    setIsDragOver(false);
   }
 
   // -------------------------------------------------------------------------
@@ -250,7 +263,7 @@ export function UploadForm({ config, onCreated }: UploadFormProps) {
           value={lang}
           onChange={(e) => setLang(e.target.value)}
           disabled={busy}
-          className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none disabled:opacity-50"
+          className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-0 disabled:opacity-50"
         >
           {config.languages.map((l) => (
             <option key={l.code} value={l.code}>
@@ -266,10 +279,14 @@ export function UploadForm({ config, onCreated }: UploadFormProps) {
           htmlFor="file-input"
           onDrop={handleDrop}
           onDragOver={handleDragOver}
+          onDragEnter={handleDragEnter}
+          onDragLeave={handleDragLeave}
           className={[
             "flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed px-4 py-10 text-sm transition-colors",
             busy
               ? "cursor-not-allowed border-gray-200 bg-gray-50 text-gray-400"
+              : isDragOver
+              ? "border-blue-500 bg-blue-50 text-blue-700"
               : "border-gray-300 bg-white text-gray-500 hover:border-blue-400 hover:bg-blue-50",
           ].join(" ")}
         >

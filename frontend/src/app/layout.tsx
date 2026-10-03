@@ -17,19 +17,19 @@ export default function RootLayout({
       <body className="antialiased min-h-screen flex flex-col bg-gray-50">
         <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
           <div className="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between">
-            <Link href="/" className="font-bold text-lg text-gray-900">
-              Audio Notes
+          <Link href="/" className="font-extrabold text-lg tracking-tight text-gray-900">
+              🎙 Audio Notes
             </Link>
-            <nav className="flex items-center gap-4">
+            <nav className="flex items-center gap-6">
               <Link
                 href="/"
-                className="text-sm font-medium text-gray-600 hover:text-gray-900"
+                className="text-sm font-medium text-gray-600 hover:text-blue-600 transition-colors"
               >
                 Home
               </Link>
               <Link
                 href="/architecture"
-                className="text-sm font-medium text-gray-600 hover:text-gray-900"
+                className="text-sm font-medium text-gray-600 hover:text-blue-600 transition-colors"
               >
                 Architecture
               </Link>

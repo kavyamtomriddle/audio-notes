@@ -24,18 +24,23 @@ export default function Home() {
   };
 
   return (
-    <main className="flex min-h-screen flex-col items-center bg-gray-50 px-4 py-12">
-      <div className="w-full max-w-lg space-y-6">
-        <HealthBanner health={health} configError={configError} />
+    <main className="mx-auto w-full max-w-2xl px-4 py-10 space-y-6">
+      <HealthBanner health={health} configError={configError} />
 
-        {configLoading && (
-          <p className="text-sm text-gray-500">Loading settings…</p>
-        )}
-
-        {config && <UploadForm config={config} onCreated={handleCreated} />}
-        
-        <HistoryList refreshKey={refreshKey} />
+      <div>
+        <h1 className="text-xl font-semibold text-gray-900 mb-1">Upload Audio</h1>
+        <p className="text-sm text-gray-500">
+          Upload an audio file to get a transcript and AI summary.
+        </p>
       </div>
+
+      {configLoading && (
+        <p className="text-sm text-gray-500">Loading settings…</p>
+      )}
+
+      {config && <UploadForm config={config} onCreated={handleCreated} />}
+
+      <HistoryList refreshKey={refreshKey} />
     </main>
   );
 }

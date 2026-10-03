@@ -23,11 +23,18 @@ export function HealthBanner({ health, configError }: HealthBannerProps) {
 
   if (!shouldShow) return null;
 
+  const isDown = health === "down" || Boolean(configError);
+
   return (
     <div
       role="status"
       aria-live="polite"
-      className="flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+      className={[
+        "flex items-center gap-2 rounded-md border px-4 py-3 text-sm",
+        isDown
+          ? "border-red-300 bg-red-50 text-red-800"
+          : "border-amber-300 bg-amber-50 text-amber-800",
+      ].join(" ")}
     >
       {/* Spinner icon */}
       <svg
@@ -52,8 +59,9 @@ export function HealthBanner({ health, configError }: HealthBannerProps) {
         />
       </svg>
       <span>
-        Server is waking up (free tier, can take up to a minute)&hellip; please
-        wait.
+        {isDown
+          ? "Cannot connect to server — reconnecting…"
+          : "Server is waking up (free tier, can take up to a minute)… please wait."}
       </span>
     </div>
   );

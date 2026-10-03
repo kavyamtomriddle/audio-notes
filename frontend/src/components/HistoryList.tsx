@@ -7,6 +7,32 @@ import { stageText, parseServerTime } from "../lib/stage";
 import { describeError } from "../lib/errors";
 import type { JobListItem } from "../lib/types";
 
+// ---------------------------------------------------------------------------
+// Status badge color mapping
+// ---------------------------------------------------------------------------
+
+/** Returns Tailwind classes for a colored status pill based on job status. */
+function statusBadgeClass(status: JobListItem["status"]): string {
+  switch (status) {
+    case "completed":
+      return "bg-green-100 text-green-800 ring-green-200";
+    case "failed":
+      return "bg-red-100 text-red-800 ring-red-200";
+    case "transcribing":
+    case "summarizing":
+      return "bg-blue-100 text-blue-800 ring-blue-200";
+    case "queued":
+      return "bg-amber-100 text-amber-800 ring-amber-200";
+    default:
+      // awaiting_upload or any unknown state
+      return "bg-gray-100 text-gray-600 ring-gray-200";
+  }
+}
+
+// ---------------------------------------------------------------------------
+// HistoryList
+// ---------------------------------------------------------------------------
+
 export function HistoryList({ refreshKey }: { refreshKey: number }) {
   const [jobs, setJobs] = useState<JobListItem[] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -64,7 +90,7 @@ export function HistoryList({ refreshKey }: { refreshKey: number }) {
   return (
     <div className="mt-12 w-full">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-gray-900">Your History</h2>
+        <h2 className="text-base font-semibold text-gray-900">Your History</h2>
         <button
           onClick={fetchJobs}
           disabled={loading}
@@ -73,7 +99,8 @@ export function HistoryList({ refreshKey }: { refreshKey: number }) {
           {loading ? "Refreshing..." : "Refresh"}
         </button>
       </div>
-      <div className="space-y-4">
+      {/* gap-3 between cards; shadow-sm → shadow-md on hover for elevation */}
+      <div className="space-y-3">
         {jobs?.map((job) => {
           const ms = parseServerTime(job.created_at);
           const timeString = ms ? new Date(ms).toLocaleString() : "Unknown time";
@@ -81,23 +108,30 @@ export function HistoryList({ refreshKey }: { refreshKey: number }) {
             <Link
               key={job.id}
               href={`/jobs/${job.id}`}
-              className="block rounded-lg border border-gray-200 bg-white p-4 shadow-sm hover:border-gray-300 transition-colors"
+              className="block rounded-lg border border-gray-200 bg-white p-4 shadow-sm hover:shadow-md hover:border-gray-300 transition-all"
             >
-              <div className="flex items-center justify-between mb-2">
-                <span className="font-medium text-gray-900 truncate pr-4">
+              <div className="flex items-center justify-between mb-2 gap-4">
+                {/* Truncate long filenames with ellipsis */}
+                <span className="font-medium text-gray-900 truncate min-w-0">
                   {job.filename}
                 </span>
-                <span className="text-sm text-gray-500 shrink-0">
+                <span className="text-xs text-gray-400 shrink-0">
                   {timeString}
                 </span>
               </div>
-              <div className="flex items-center gap-2 mb-2">
-                <span className="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-800">
+              <div className="flex items-center gap-2">
+                {/* Colored status pill */}
+                <span
+                  className={[
+                    "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset",
+                    statusBadgeClass(job.status),
+                  ].join(" ")}
+                >
                   {stageText(job)}
                 </span>
               </div>
               {job.summary_snippet && (
-                <p className="text-sm text-gray-600 line-clamp-2">
+                <p className="mt-2 text-sm text-gray-500 line-clamp-2">
                   {job.summary_snippet}
                 </p>
               )}
