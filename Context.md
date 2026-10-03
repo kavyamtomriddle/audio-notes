@@ -252,11 +252,12 @@ Render: native Python runtime, build `pip install -r requirements.txt`, start `u
 - 2026-10-02 · Phase 1 complete: config.py extended (all §11 vars), db.py (lazy async engine), models.py (Upload, SQLAlchemy 2.x), constants.py (languages/extensions/errors from Gnani docs), schemas.py, services/storage.py (httpx Supabase REST), routes/jobs.py (GET /api/config, POST initiate/complete, GET jobs/job), Alembic migration 0001, tests (20 pass), smoke_upload.py · backend/app/{config,constants,db,models,schemas}.py, backend/app/services/{__init__,storage}.py, backend/app/routes/{__init__,jobs}.py, backend/app/main.py, backend/{requirements.txt,alembic.ini}, backend/alembic/{env.py,script.py.mako,versions/0001_create_uploads_table.py}, backend/tests/{__init__,conftest,test_jobs}.py, backend/scripts/smoke_upload.py · 20/20 tests pass ✓, /health → {"ok":true} ✓, /api/config → 8 languages + 10 extensions ✓
 - 2026-10-02 · Phase 0 complete: backend (FastAPI /health + CORS), frontend (Next.js health check page), .env.example, README.md, render.yaml, .gitignore · backend/app/{main,config,__init__}.py, backend/{requirements.txt,render.yaml}, frontend/src/app/{page,layout}.tsx, frontend/src/app/globals.css, frontend/{package.json,tsconfig.json,next.config.ts,postcss.config.mjs,eslint.config.mjs,.env.local,.gitignore}, .env.example, README.md · Backend /health → {"ok":true} ✓, CORS preflight → Access-Control-Allow-Origin: http://localhost:3000 ✓, Frontend serves at localhost:3000 ✓
 - 2026-10-02 · Context.md clarifications: added /api/config endpoint, resolved open decisions, clarified attempts/files_attempts/sweeper guards, added constants.py, Python 3.13, EST_RATIO via config, 140-char snippet definition, QUEUED status documented · Context.md · no tests
-**Session handoff note (=10 lines, rewrite at the end of every session):**
+- 2026-10-03 · Phase F2c: polling.ts (nextPollDelayMs backoff), usePollJob.ts (recursive setTimeout, generation counter, AbortController, reconnecting/notFound/4xx handling), jobs/[id]/page.tsx (job detail page with retry, clock tick, all component wiring). · frontend/src/lib/polling.ts, frontend/src/lib/__tests__/polling.test.ts, frontend/src/hooks/usePollJob.ts, frontend/src/app/jobs/[id]/page.tsx · lint ✔ tsc ✔ test 36/36 ✔ build ✔
+**Session handoff note (≤5 lines, rewrite at the end of every session):**
   - Phase 2 complete (tag phase-2); fixtures in docs/fixtures/api_*.json.
-  - F1a/F1b/F1c/F2a done.
-  - F2b done: JobStatus, TranscriptPanel, SummaryPanel, ErrorPanel implemented.
-  - All F2b checks pass (lint, tsc, test 34/34, build). Next: F2c.
+  - F1a/F1b/F2a/F2b/F2c done.
+  - F2c: polling.ts, usePollJob.ts, jobs/[id]/page.tsx. All checks pass (lint, tsc, test 36/36, build).
+  - Next: F1c (UploadForm), F3 (HistoryList + home page), F4 (/architecture scaffold), F5 (final polish).
 
 ## 16. Human-approved addenda (override earlier text where they conflict)
 1. CORS: `CORSMiddleware` with origins from `CORS_ORIGINS`, methods GET/POST/OPTIONS, `allow_headers` including `X-Session-Id` and `Content-Type` (the custom header triggers a preflight on every API call).

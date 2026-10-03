@@ -44,7 +44,7 @@ interface UploadFormProps {
 
 function defaultLanguage(config: Config): string {
   const codes = config.languages.map((l) => l.code);
-  return codes.includes("en-IN") ? "en-IN" : (codes[0] ?? "");
+  return (codes[0] ?? "");
 }
 
 function formatPercent(loaded: number, total: number): number {
